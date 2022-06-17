@@ -2,18 +2,18 @@
 	path = third_party/InverseRenderingOfIndoorScene
 	url = https://github.com/yuyingyeh/InverseRenderingOfIndoorScene.git
 [submodule "third_party/OptixRenderer"]
-	path = third_party/OptixRenderer
+	path = third_party/OptiX_Renderer/OptixRenderer
 	url = https://github.com/yuyingyeh/OptixRenderer.git
 [submodule "third_party/OptixRenderer_MatPart"]
-	path = third_party/OptixRenderer_MatPart
+	path = third_party/OptiX_Renderer/OptixRenderer_MatPart
 	url = https://github.com/yuyingyeh/OptixRenderer.git
 	branch = matpart
 [submodule "third_party/OptixRenderer_UVcoord"]
-	path = third_party/OptixRenderer_UVcoord
+	path = third_party/OptiX_Renderer/OptixRenderer_UVcoord
 	url = https://github.com/yuyingyeh/OptixRenderer.git
 	branch = uvcoord
 [submodule "third_party/OptixRenderer_Light"]
-	path = third_party/OptixRenderer_Light
+	path = third_party/OptiX_Renderer/OptixRenderer_Light
 	url = https://github.com/yuyingyeh/OptixRenderer.git
 	branch = renderLight
 [submodule "third_party/MaskFormer"]
