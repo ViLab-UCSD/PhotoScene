@@ -19,3 +19,6 @@
 [submodule "third_party/MaskFormer"]
 	path = third_party/MaskFormer
 	url = https://github.com/facebookresearch/MaskFormer.git
+[submodule "third_party/Total3D"]
+	path = third_party/Total3D
+	url = https://github.com/yinyunie/Total3DUnderstanding.git
