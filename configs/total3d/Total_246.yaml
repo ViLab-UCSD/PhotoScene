@@ -1,0 +1,60 @@
+# Machine
+machine: local
+# arguments
+sceneId: 
+  - Total_246
+dataMode: total3d
+renderDefault: false
+renderWhite: false
+renderAssignedMatch: false
+renderAssignedGan: false
+debugTask: assignMatch
+# For debug task, can be random, class, graph
+assignMode: graph
+# if assignMode is class
+assignClass: wood
+# if assignMode is graph
+assignGraph: wood_cedar_white
+expName: total3d
+# n or j
+uvOptimMode: s
+# useful when uvOptimMode is j
+uvOptim:
+  scale: true
+  rotation: true
+  translation: true
+uvOptimLr:
+  scale: 0.08
+  rotation: 0.06
+  translation: 0.01
+uvSearchParam:
+  scaleBase: 1.5
+  # min included
+  scaleExpMin: -3.5
+  # max not included
+  scaleExpMax: 4.5
+  # number of steps between min and max
+  scaleStepNum: 32
+  # divide 2PI to $rotStep steps
+  rotStepNum: 72
+  # divide [-0.5, 0.5] into $transStepNum for both X and Y
+  transStepNum: 5
+useHomoRough: true
+useAlbOffset: true
+matRes: 8
+modeId: 1
+seed: 0
+modeName: 
+  - stat-100-vgg-1
+  # - stat-100-vgg-1-style-500
+  # - stat-100-vgg-1-style-330
+  # - stat-100-vgg-1-style-100
+  # - stat-100-pix-100-vgg-1
+  # - stat-100-pix-100-vgg-1-style-500
+  # - pix-100-vgg-1-style-500
+  # - stat-100-vgg-1-style-500
+  # - stat-100-pix-100-style-500
+  # - stat-100-pix-100-vgg-1
+kNum : 21
+# yaml
+rootConfig: configs/roots.yaml

@@ -1,0 +1,48 @@
+# Roots
+local:
+  # Renderer
+  rendererDir: third_party
+  OptixRoot: third_party/OptiX
+  # # OpenRooms root
+  # orXmlDir: /home/yyyeh/Datasets/OpenRoomRaw/xml
+  # orMeshDir: /home/yyyeh/Datasets/OpenRoomRaw/mesh
+  # orEnvDir: /home/yyyeh/Datasets/OpenRoomRaw/envmap
+  # orModelIdFile: /home/yyyeh/Datasets/OpenRoomRaw/models.txt
+  # # ScanNet dataset root
+  # snDataRoot: /datasets/ScanNet
+  # # ScanNet extract root
+  # # snExtractDir: /home/yyyeh/Datasets/ScanNetExtract
+  # snExtractPoseDir: /home/yyyeh/Datasets/ScanNetExtract
+  # snExtractIntrinsicDir: /home/yyyeh/Datasets/ScanNetExtract
+  # # scannet scene output root
+  # orSnViewDir: /home/yyyeh/Datasets/OpenRoomScanNetView
+  # # Material set root
+  # oriMatDir: /home/yyyeh/Datasets/BRDFOriginDataset
+  # # Inverse render net root
+  # invrenderRoot: /home/yyyeh/GitRepo/InverseRenderingOfIndoorScene
+  # # Material Classifier root
+  # semanticInvRoot: /home/yyyeh/GitRepo/semanticInverse
+  # supMatListRoot: /home/yyyeh/Datasets/OpenRoomRaw/MatLists
+  # # assign prior root
+  # assignPriorDir: /home/yyyeh/GitRepo/material-preprocess/assignPriorMat
+  # # Match root
+  # matchRoot: /home/yyyeh/GitRepo/material_match-package
+  # toolkitRoot: /home/yyyeh
+  # # conda root
+  # condaRoot: /home/yyyeh/anaconda3/etc/profile.d/conda.sh
+  # # material gan root
+  # matGanRoot: /home/yyyeh/GitRepo/material-hallucination/adobe_svbrdf-master
+  # # real scene output root
+  # realSceneRoot: /home/yyyeh/Datasets/RealScenes
+  # # visualizeDir
+  # visualizeDir: /home/yyyeh/GitRepo/photoscene-dev/vis
+  # # graph sample Dir
+  # graphSampleDir: /home/yyyeh/GitRepo/photoscene-dev/graphsSamples
+  # # total 3d Dir
+  # total3dDir: /home/yyyeh/GitRepo/Total3DUnderstanding
+  # # total3dInputDir/$imgID.pkl
+  # total3dInputDir: /home/yyyeh/GitRepo/Total3DUnderstanding/data/sunrgbd/sunrgbd_train_test_data/
+  # # total3dResultDir/$imgID/<*.obj/*.mat>
+  # total3dResultDir: /home/yyyeh/GitRepo/Total3DUnderstanding/out/total3d/2021-11-11T16:18:39.615674/visualization/
+  # # MaskFormer Dir
+  # maskformerDir: /home/yyyeh/GitRepo/MaskFormer
