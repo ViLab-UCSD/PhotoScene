@@ -16,3 +16,6 @@
 	path = third_party/OptixRenderer_Light
 	url = https://github.com/yuyingyeh/OptixRenderer.git
 	branch = renderLight
+[submodule "third_party/MaskFormer"]
+	path = third_party/MaskFormer
+	url = https://github.com/facebookresearch/MaskFormer.git
