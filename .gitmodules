@@ -22,3 +22,4 @@
 [submodule "third_party/Total3D"]
 	path = third_party/Total3D
 	url = https://github.com/yuyingyeh/Total3DUnderstanding.git
+    ignore = dirty
