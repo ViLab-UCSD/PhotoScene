@@ -18,9 +18,7 @@ from scipy import ndimage
 from utils.io import *
 from utils.xml import *
 from utils.render import *
-import trimesh
 
-from scipy.spatial.transform import Rotation as R
 import scipy.io
 
 
@@ -61,36 +59,13 @@ def saveViewList(sampledIdList, sampledViewFile):
         f.writelines('%d ' % vId for vId in sampledIdList)
     print('Sampled views are saved at %s' % sampledViewFile)
 
-def readViewList(sampledViewFile):
-    with open(sampledViewFile, 'r') as f:
-        candidateCamIdList = f.readline().strip().split(' ')
-        candidateCamIdList = [int(cId) for cId in candidateCamIdList]
-    return candidateCamIdList
-
 def saveViewDict(selectedViewFile, matViewDict):
         with open(selectedViewFile, 'w') as f:
             for mat in sorted(matViewDict.keys()):
                 f.writelines('%s %d\n' % (mat, matViewDict[mat]))
-        print('Selected views are saved at %s' % selectedViewFile)
+        # print('Selected views are saved at %s' % selectedViewFile)
 
-def runInvRender(invRenderRoot, photoDir, initPerPixelImListFile, invRenderDir):
-    workingDir = os.getcwd()
-    os.chdir(invRenderRoot)
-    scriptPath = osp.join(invRenderRoot, 'testReal.py')
-    cmd = 'python3 %s --cuda --dataRoot %s' % (scriptPath, photoDir ) \
-        + ' --imList %s' % initPerPixelImListFile \
-        + ' --testRoot %s --isLight --isBS --level 2' % invRenderDir \
-        + ' --experiment0 check_cascade0_w320_h240 --nepoch0 14' \
-        + ' --experimentLight0 check_cascadeLight0_sg12_offset1 --nepochLight0 10' \
-        + ' --experimentBS0 checkBs_cascade0_w320_h240' \
-        + ' --experiment1 check_cascade1_w320_h240 --nepoch1 7' \
-        + ' --experimentLight1 check_cascadeLight1_sg12_offset1 --nepochLight1 10' \
-        + ' --experimentBS1 checkBs_cascade1_w320_h240' 
-    print(cmd)
-    os.system(cmd)
-    os.chdir(workingDir)
-
-def loadOpenRoomData(inDir, vId, refH, refW): # orSnView
+def loadSceneRenderData(cfg, vId, refH, refW): 
     def depthToNormal(depth, fov=57, eps=1e-6): # 1 x 1 x H x W
         z = depth.squeeze() # H x W
         validMask = (z>0)
@@ -108,16 +83,15 @@ def loadOpenRoomData(inDir, vId, refH, refW): # orSnView
         normal = pad(normal)
         return normal.unsqueeze(0), validMask.unsqueeze(0).unsqueeze(1) # 1 x 3 x H x W, 1 x 1 x H x W
     # load openroom uv coords
-    uvPath = os.path.join(inDir, 'uvCoord/imuvcoord_%d.dat' % vId)
+    uvPath = cfg.uvPathById % vId
     uvMap = loadBinary(uvPath, channels=2, if_resize=True, imWidth=refW, imHeight=refH) # 1 x refH x refW x 2 
     uvMap = uvMap - np.floor(uvMap)
     uvMapTensor = th.from_numpy(uvMap)
 
     # load openroom normal
-    orNormalImg = os.path.join(inDir, 'normal/imnormal_%d.png' % vId)
-    #orNormalImg  = os.path.join(outDir, '%d_imnormal.png' % vId)
-    orNormal = readNormal(orNormalImg, refW, refH)
-    depthPath = os.path.join(inDir, 'depth/imdepth_%d.dat' % vId)
+    # orNormalImg = cfg.normalPathById % vId
+    # orNormal = readNormal(orNormalImg, refW, refH)
+    depthPath = cfg.depthPathById % vId
     depthMap  = loadBinary(depthPath, channels=1, if_resize=True, imWidth=refW*2, imHeight=refH*2) # 1 x refH*2 x refW*2  
     depthMap  = th.from_numpy(depthMap).unsqueeze(1) # 1 x 1 x refH*2 x refW*2 
     orNormalFromDepth, validMask = depthToNormal(depthMap) # 1 x 3 x refH*2 x refW*2
@@ -129,20 +103,8 @@ def loadOpenRoomData(inDir, vId, refH, refW): # orSnView
     
     return orData
 
-def jointMask(orMatPart, orNormal, snNormal, normalTH=0.95):
-    #orNormal = orNormal / np.sqrt(np.sum(orNormal**2, axis=2))[:,:,np.newaxis]
-    #snNormal = snNormal / np.sqrt(np.sum(snNormal**2, axis=2))[:,:,np.newaxis]
-    #normalMask = np.sum(orNormal * snNormal, axis=2) > 0.95
-    normalMask = th.sum(orNormal * snNormal, dim=1) > normalTH
-    return orMatPart * normalMask
-
-def saveFailedMatDict(failedMatDictFile, failedMatDict):
-    with open(failedMatDictFile, 'w') as f:
-        for mat in sorted(failedMatDict.keys()):
-            f.write('%s %s\n' % (mat, osp.dirname(failedMatDict[mat]['albedoPath'])))
-
-def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir, imWidth, imHeight, outputSaveDir, semLabDir, insLabDir, labelMapDict, \
-                pixNumTH=100, normalTH=0.9, smallMatMode='median', isOverwrite=False, isManual=False, gtMaskDir=None):
+def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight, labelMapDict, \
+                normalTH=0.9, isOverwrite=False):
     def readMatPartMaskBatch(filePath, bsdfIdDict, if_resize=False, imWidth=None, imHeight=None, pixNumTH=100):
         
         matMap = loadBinary(filePath, channels = 3, dtype=np.int32, if_resize=if_resize, imWidth=imWidth, imHeight=imHeight).squeeze()
@@ -150,7 +112,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
         matIdMap = matMap[:,:,1]
         insIdMap = matMap[:,:,2]
         partMaskDict = {}
-        #cadMaskDict = {}
         insMaskDict = {}
         for mat in bsdfIdDict.keys():
             partIdDict = bsdfIdDict[mat]
@@ -158,21 +119,13 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             cadMask = cadIdMap == cadId
             matMask = matIdMap == matId
             partMask = cadMask * matMask
-            #print(mat, np.sum(partMask.astype(np.int)))
             if np.sum(partMask.astype(np.int32)) < pixNumTH:
-                # print(cadId, matId)
-                # print(cadMask.dtype, cadMask.astype(np.int).max())
-                # print(matMask.dtype, matMask.astype(np.int).max())
-                # print(partMask.dtype, partMask.astype(np.int).max())
-                #print('Too few pixel (%d) in part %s! Skip!' % (np.sum(partMask.astype(np.int)), mat) )
                 continue
             partMaskDict[mat] = partMask
-            #cadMaskDict[mat] = cadMask
             if 'scene' in mat: # separate each plane of wall to diff. segs
-                #insMaskOpt = insMaskDict[mat]
                 insMaskOpt = insIdMap * cadMask * matMask
                 camIdOpt = filePath.split('_')[-1].split('.')[0]
-                normalFile = os.path.join(orSnViewDir, 'normal', 'imnormal_%s.png' % camIdOpt )
+                normalFile = os.path.join(cfg.normalRenderDir, cfg.normalPathById % int(camIdOpt) )
                 normal = readNormal(normalFile, imWidth, imHeight)
                 orIns = torch.from_numpy(insMaskOpt).unsqueeze(0).unsqueeze(1)
                 segList = segFromNormal(normal, orIns, threshold=0.95)
@@ -197,7 +150,9 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
 
     def readSegLabel(labelFile, if_resize=False, imWidth=None, imHeight=None):
         label = np.array(Image.open(labelFile) )
-        label = torch.nn.functional.interpolate(torch.from_numpy(label).float().unsqueeze(0).unsqueeze(1), size=(imHeight, imWidth), mode='nearest')
+        label = torch.from_numpy(label).unsqueeze(0).unsqueeze(1)
+        if if_resize:
+            label = torch.nn.functional.interpolate(label, size=(imHeight, imWidth), mode='nearest')
         return label.type(torch.int )
 
     def readGtMask(maskFile, imWidth=None, imHeight=None, readAlpha=False):
@@ -205,10 +160,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             print('%s not exist!' % maskFile)
             assert(False)
         photoMask = cv2.imread(maskFile, cv2.IMREAD_UNCHANGED)
-        # import pdb
-        # pdb.set_trace()
-        # if imWidth is not None and imHeight is not None:
-        #     photoMask = cv2.resize(photoMask, (imWidth, imHeight))
         if readAlpha:
             assert(photoMask.shape[2] == 4)
             photoMask = photoMask[:,:,3] # read alpha channel
@@ -222,9 +173,8 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
         snIns = torch.nn.functional.interpolate(snIns, size=(imHeight, imWidth), mode='nearest') > 0
         return snIns.type(torch.int )
 
-    def getOrInsList(mat, insMaskDict, orSnViewDir, camIdOpt, imWidth, imHeight):
-        insMaskOpt = insMaskDict[mat]
-        #orIns = torch.from_numpy(insMaskOpt).unsqueeze(0).unsqueeze(1)      
+    def getOrInsList(mat, insMaskDict):
+        insMaskOpt = insMaskDict[mat]    
         orIns = insMaskOpt 
         orInsList = []
         for orId in list(th.unique(orIns)):
@@ -237,7 +187,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
     def getSnInsMap(mat, matPartMask, labelMapDict, semLabel, insLabel):
         ### Use OR matPartMask to search corresponding SN mask among candidates from semantic masks
         ### Find the candidate with best MIOU, then multipy with insLabel to output ins. label for correct class
-        #matPartMask = torch.from_numpy(matPartMask).unsqueeze(0).unsqueeze(1)
         modelID = mat.split('_')[0]
         if 'scene' in modelID:
             modelID = mat.split('_')[2]
@@ -249,34 +198,24 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             snIDList = th.unique(semLabel).tolist()
         #print(mat, snIDList)
         semBest = torch.zeros_like(semLabel)
-        #semPixNum = 0
         ### Find the semantic mask which has best mIoU with matPartMask ###
         bestMIOU = 0
         for snID in snIDList:
             semMask = semLabel == snID
-            #currSemPixNum = torch.sum(matPartMask.float() * semMask.float())
             # use mIoU
             matPartMaskSoft = toSoftMask(matPartMask)
             intersection = th.sum(matPartMaskSoft * semMask.float() )
             union     = th.sum(matPartMaskSoft + semMask.float() )
             mIoU = intersection / union 
-            # if mat == '04379243_3c899eb5c23784f9febad4f49b26ec52_part0':
-            #     print(modelID, snID, semMask.sum(), torch.unique(semLabel))
-            #if currSemPixNum > semPixNum:
             if mIoU > bestMIOU:
                 bestMIOU = mIoU
-                #semPixNum = currSemPixNum
                 semBest = semMask
                 #print('find', snID)
-        #if semPixNum == 0:
         if bestMIOU == 0:
             snIns = insLabel * semBest
         else:
             snIns = insLabel * semBest
-        #if torch.sum(semBest)==0:
-        # if torch.sum(semMask.float()) > 0:
-        #     print(mat, snIDList, torch.sum(matPartMask), torch.sum(semMask.float()), torch.unique(semLabel))
-            #assert(False)
+
         return snIns
 
     def getSnInsList(snIns):
@@ -295,9 +234,8 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             for l in range(num_labels):
                 segMask = labels_im==l
                 if np.sum(segMask) > nPixThreshold and l != 0:
-                    print('SegMask sum:', np.sum(segMask))
+                    # print('SegMask sum:', np.sum(segMask))
                     segMasks.append(torch.tensor(segMask.astype(np.int32)).unsqueeze(0).unsqueeze(1).bool() ) # bool
-                    #segMasks.append(torch.from_numpy(segMask).unsqueeze(0).unsqueeze(1) )
             return segMasks
         # normal: 1 x 3 x H x W; mask: 1 x 1 x H x W
         # output: list of segs with similar normal directions
@@ -380,7 +318,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 pixNum = th.sum(orInsMask.float())
                 orInsListPixNum[pixNum] = orInsMask
 
-            #for idx, orInsMask in enumerate(orInsList):
             cnt = 0
             snInsListCopy = snInsList.copy()
             for pixNum in sorted(orInsListPixNum.keys(), reverse=True):
@@ -389,8 +326,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 selectIdx = -1
                 for idx2, snInsMask in enumerate(snInsListCopy): # snMask
                     orInsMaskSoft = toSoftMask(orInsMask)
-                    #intersection = th.sum(orInsMaskSoft * snInsMask.float() )
-                    #union     = th.sum(orInsMaskSoft + snInsMask.float() )
                     snInsMaskSoft = toSoftMask(snInsMask)
                     intersection = th.sum(orInsMaskSoft * snInsMaskSoft )
                     union     = th.sum(orInsMaskSoft + snInsMaskSoft )
@@ -411,14 +346,11 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
 
     def findConsensus(invRenderInitStatDict, inTH=0.2): # {mat: [{vId:Z alb: X, rou:Y } ] }
         selectedViewDict = {}
-        for mat in invRenderInitStatDict.keys():
-            print('Find Consensus for material %s ...' % mat)
+        num = len(invRenderInitStatDict.keys())
+        for mm, mat in enumerate(invRenderInitStatDict.keys()):
+            print('[%d/%d] Finding Consensus for material %s ...' % (mm+1, num, mat))
             matStatList = invRenderInitStatDict[mat]
-            # minTotalErr = 1000000000
             optView = -1
-            # #optCntList = [0] * len(inTHs)
-            # optViewList = []
-            # optCnt = 0
             inlierCntList = []
             pixNumList = []
             pixNumOriList = []
@@ -430,9 +362,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 pixNum = matData['pixNum']
                 pixNumOri = matData['pixNumOri']
                 
-                #print(alb, rou)
-                #errTotal = 0
-                #cntList = [0] * len(inTHs)
                 cnt = 0
                 for matData2 in matStatList:
                     vId2 = matData2['vId']
@@ -440,10 +369,8 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                         continue
                     albMean2, rouMean2 = matData2['albMean'], matData2['roughMean']
                     albVar2, rouVar2 = matData2['albVar'], matData2['roughVar']
-                    #print(vId, vId2, (th.norm(alb - alb2) + th.norm(rou-rou2) ) )
                     err1 = (th.norm(albMean - albMean2) + th.norm(rouMean-rouMean2) ) 
                     err2 = (th.norm(albVar - albVar2) + th.norm(rouVar-rouVar2) )
-                    #print(err1, err2)
                     err = err1 + err2
                     if err < inTH:
                         cnt += 1
@@ -452,15 +379,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 pixNumOriList.append(pixNumOri)
                 #print(vId, 'Num of pix:', pixNum, 'inlier:', cnt)
 
-                # print(vId, 'Number of inlier:', cnt)
-                # for idx, cnt in enumerate(cntList):
-                #     optCnt = optCntList[idx]
-                #     if cnt > optCnt
-                # if cnt > optCnt:
-                #     optViewList = [vId]
-                #     optCnt = cnt     
-                # elif cnt == optCnt:
-                #     optViewList.append(vId)
             optVal = 0
             for idx, matData in enumerate(matStatList):
                 vId = matData['vId']
@@ -469,50 +387,32 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                     optView = vId
                     optVal = val
                     optPixNum = pixNumOriList[idx]
-            # print(optViewList)
-            # if len(optViewList) >= 2:
-            #     # if more than 2 view with same # of inlier, choose the largest mask
-            #     optPixNum = 0
-            #     for matData in matStatList:
-            #         vId = matData['vId']
-            #         if vId in optViewList:
-            #             nPix = matData['nPix']
-            #             if nPix > optPixNum:
-            #                 optPixNum = nPix
-            #                 optView = vId
-            # elif len(optViewList) == 1:
-            #     optView = optViewList[0]
-            # else:
-            #     print('--> Material %s not exist! Skip!' % mat)
-            #     continue
+
             if optView > -1 and optPixNum > 0:
                 selectedViewDict[mat] = optView
-                print('--> Selected optimal view ID: %d for material: %s, pixel num is %d\n' % (optView, mat, optPixNum))
+                print('        Selected optimal view ID: %d for material: %s, pixel num is %d' % (optView, mat, optPixNum))
             else:
-                print('--> Optimal view for material %s not found!\n' % mat)
+                print('        Optimal view for material %s not found!' % mat)
         return selectedViewDict
 
-    def getColorMap(nColor):
-        cMap = []
-        for c in range(nColor):
-            hue = c / nColor * 360.0
-            lightness = 0.4 + 0.1 * (c % 3)
-            saturation = 0.9
-            color_hls = np.array([hue, lightness, saturation])[np.newaxis, np.newaxis, :] * 255.0
-            color_rgb = cv2.cvtColor(color_hls.astype(np.uint8), cv2.COLOR_HLS2RGB)
-            cMap.append(color_rgb.squeeze())
-        return np.stack(cMap, axis=0) # nColor x 3
-    
-    def segList2ColorMask(segList):
-        cMap = th.tensor(getColorMap(len(segList)) ) # nColor x 3
-        colorMask = th.zeros_like(segList[0].repeat(1, 3, 1, 1)).byte().view(3, -1)
-        for idx, m in enumerate(segList):
-            #mask = m * m + (~m) * mask
-            m = m.view(-1) > 0
-            colorMask[:, m] = cMap[idx].view(3, 1)
-        return colorMask
+    # def segList2ColorMask(segList):
+    #     def getColorMap(nColor):
+    #         cMap = []
+    #         for c in range(nColor):
+    #             hue = c / nColor * 360.0
+    #             lightness = 0.4 + 0.1 * (c % 3)
+    #             saturation = 0.9
+    #             color_hls = np.array([hue, lightness, saturation])[np.newaxis, np.newaxis, :] * 255.0
+    #             color_rgb = cv2.cvtColor(color_hls.astype(np.uint8), cv2.COLOR_HLS2RGB)
+    #             cMap.append(color_rgb.squeeze())
+    #         return np.stack(cMap, axis=0) # nColor x 3
 
-    
+    #     cMap = th.tensor(getColorMap(len(segList)) ) # nColor x 3
+    #     colorMask = th.zeros_like(segList[0].repeat(1, 3, 1, 1)).byte().view(3, -1)
+    #     for idx, m in enumerate(segList):
+    #         m = m.view(-1) > 0
+    #         colorMask[:, m] = cMap[idx].view(3, 1)
+    #     return colorMask
 
     def transformInp(inp, center1, center2, length1, length2):
         # center1: orCenter; center2: snCenter
@@ -520,54 +420,54 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
         # inp: N x C x H x W
         theta = th.tensor([[1., 0., 0.], [0., 1., 0.]])
         grid = th.nn.functional.affine_grid(theta.view(-1, 2, 3), inp.size(), align_corners=False) # N x H x W x 2, u v in [-1, 1]
-        #print(grid[0, 115:125, 155:165, 0], grid[0, 0, 0, 0])
         grid = (grid - center2.view(1, 1, 1, 2)) / length2.view(1, 1, 1, 2) * length1.view(1, 1, 1, 2) \
                 + center1.view(1, 1, 1, 2)
-        #grid = (grid - center2.view(1, 1, 1, 2)) + center1.view(1, 1, 1, 2)
-        # grid = (grid - center1.view(1, 1, 1, 2)) / length1.view(1, 1, 1, 2) * length2.view(1, 1, 1, 2) \
-        #         + center2.view(1, 1, 1, 2)
-        #print(grid[0, 115:125, 155:165, 0])
         warpedInp = th.nn.functional.grid_sample(inp, grid, align_corners=False)
         return warpedInp
 
-    selectedViewFile = os.path.join(orSnViewDir, 'selectedViewDict.txt')
-    selectedViewSmallMaskDictFile = os.path.join(orSnViewDir, 'selectedViewSmallMaskDict.txt')
-    selectedViewNoMaskDictFile = os.path.join(orSnViewDir, 'selectedViewNoMaskDict.txt')
-    selectedViewFullDictFile = os.path.join(orSnViewDir, 'selectedViewFullDict.txt')
-    if isOverwrite or not osp.exists(selectedViewFullDictFile) or isManual:
+    def jointMask(orMatPart, orNormal, snNormal, normalTH=0.95):
+        normalMask = th.sum(orNormal * snNormal, dim=1) > normalTH
+        return orMatPart * normalMask
+
+    selectedViewFile = cfg.selectedViewFile
+    selectedViewSmallMaskDictFile = cfg.selectedSmallDictFile
+    selectedViewNoMaskDictFile = cfg.selectedNoMaskDictFile
+    selectedViewFullDictFile = cfg.selectedFullDictFile
+    if isOverwrite or not osp.exists(selectedViewFullDictFile):
         invRenderInitStatDict = {} # {mat: [vId: {alb: X, rou:Y} ] }
         for mat in bsdfIdDict.keys():
             invRenderInitStatDict[mat] = []
-        print('Searching for optimal view...')
         for camId in candidateCamIdList: # Search for best view if inv render consensus and with enough number of pixels
-            matPartMaskDict, insMaskDict = readMatPartMaskBatch(os.path.join(orSnViewDir, 'partId', 'imcadmatobj_%s.dat' % camId ), bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
+            partMaskFile = osp.join(cfg.partIdRenderDir, cfg.partIdPathById % int(camId) )
+            matPartMaskDict, insMaskDict = readMatPartMaskBatch(partMaskFile, bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
             # Read ScanNet semantic and instance labels
             # if labelMapDict is not None: # {modelID: ScanNet class labels}
-            if gtMaskDir is None:
-                semLabelFile = osp.join(semLabDir, '%d.png' % camId)
+            if cfg.gtMaskDir is None:
+                # semLabelFile = osp.join(cfg.semLabDir, '%d.png' % camId)
+                semLabelFile = cfg.semLabById % camId
                 semLabel  = readSegLabel(semLabelFile, if_resize=True, imWidth=imWidth, imHeight=imHeight)
-                uniqueIDList = list(torch.unique(semLabel))
-                insLabelFile = osp.join(insLabDir, '%d.png' % camId)
+                # insLabelFile = osp.join(cfg.insLabDir, '%d.png' % camId)
+                insLabelFile = cfg.insLabById % camId
                 insLabel  = readSegLabel(insLabelFile, if_resize=True, imWidth=imWidth, imHeight=imHeight)
             # Read Inverse Rendering Pred.
-            invRenderData = loadInvRenderData(orSnViewDir, camId, refH=imHeight, refW=imWidth)
+            invRenderData = loadInvRenderData(cfg, camId, refH=imHeight, refW=imWidth, device='cpu')
             # Collect Inverse Rendering init. results for each material
             for mat, matPartMask in matPartMaskDict.items():
                 # load openroom instance mask list
-                orInsList = getOrInsList(mat, insMaskDict, orSnViewDir, camId, imWidth, imHeight)
+                orInsList = getOrInsList(mat, insMaskDict)
                 # load scannet instance mask list
                 matPartMask = th.from_numpy(matPartMask).unsqueeze(0).unsqueeze(1)
                 #print(mat, th.sum(matPartMask))
-                if gtMaskDir is None:
+                if cfg.gtMaskDir is None:
                     snIns = getSnInsMap(mat, matPartMask, labelMapDict, semLabel, insLabel)
                 else:
-                    maskFile = osp.join(gtMaskDir, mat, '%d.png' % camId)
+                    # maskFile = osp.join(gtMaskDir, mat, '%d.png' % camId)
+                    maskFile = cfg.gtMaskByNameId % (mat, camId)
                     snIns = readGtMask(maskFile, imWidth=imWidth, imHeight=imHeight, readAlpha=True)
                 snInsList = getSnInsList(snIns)
                 if len(snInsList) == 0:
                     print('\n------>>>>' , mat, ': semantic part not found!\n')
                     continue
-                #snInsList = getSnInsList(mat, matPartMask, labelMapDict, semLabel, insLabel)
                 # ----> Step 1: Instance level pair matching
                 orInsSelect, snInsSelect = matchInsList(orInsList, snInsList)
                 # ----> Step 2: Fetch init. material for ScanNet instance mask
@@ -584,14 +484,11 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                     def gaussianMask(mask, mean=0, sig=0.5):
                         # assume only 1 connected component in mask
                         H, W = mask.squeeze().shape
-                        #center, length = mask2bound(mask)
                         meshgrids = torch.meshgrid(
                             [ ( (torch.arange(size, dtype=torch.float32) + 0.5) / size - 0.5) * 2.0 for size in [H, W] ]
                         )
-                        #means = [center[1], center[0] ]
                         means = [mean, mean]
                         sigma = [sig, sig]
-                        #sigma = [length[1]/2.0, length[0]/2.0 ]
                         kernel = 1
                         for mean, std, mgrid in zip(means, sigma, meshgrids):
                             kernel *= 1 / (std * math.sqrt(2 * math.pi)) * \
@@ -607,50 +504,38 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
         
         # ---> Resolve for consensus <---- #
         selectedViewDict = findConsensus(invRenderInitStatDict)
-        if isManual:
-            if not osp.exists(selectedViewFile):
-                print('Selected view file %s not exists!' % selectedViewFile)
-                assert(False)
-            selectedViewDict = readViewDict(selectedViewFile)
 
         # ---> after view selection, warp mask and uv, then save new part mask!
-        # failedMatDictFile = os.path.join(orSnViewDir, 'failedMatDict.txt')  
-        # failedMatDict = {}
-        # if os.path.exists(failedMatDictFile):
-        #     with open(failedMatDictFile, 'r') as f:
-        #         for line in f.readlines():
-        #             mat, matDir = line.strip().split(' ')
-        #             failedMatDict[mat] = {'albedoPath': osp.join(matDir, 'basecolor.png'), 'normalPath': osp.join(matDir, 'normal.png'), 'roughPath': osp.join(matDir, 'roughness.png')}
-        
         selectedViewSmallMaskDict = {}
         selectedViewNoMaskDict = {}
         if os.path.exists(selectedViewSmallMaskDictFile):
             selectedViewSmallMaskDict = readViewDict(selectedViewSmallMaskDictFile)
         for mat in selectedViewDict.keys():
             vId = selectedViewDict[mat]
-            orData = loadOpenRoomData(orSnViewDir, vId, refH=imHeight, refW=imWidth)
+            orData = loadSceneRenderData(cfg, vId, refH=imHeight, refW=imWidth)
             orUvMap = orData['uv'].permute(0, 3, 1, 2)
             orNormal = orData['normal']
-            invRenderData = loadInvRenderData(orSnViewDir, vId, refH=imHeight, refW=imWidth)
+            invRenderData = loadInvRenderData(cfg, vId, refH=imHeight, refW=imWidth, device='cpu')
             snNormal = invRenderData['normal']
-            if gtMaskDir is None:
+            if cfg.gtMaskDir is None:
                 # Read ScanNet semantic and instance labels
-                semLabelFile = osp.join(semLabDir, '%d.png' % vId)
+                # semLabelFile = osp.join(cfg.semLabDir, '%d.png' % vId)
+                semLabelFile = cfg.semLabById % vId
                 semLabel  = readSegLabel(semLabelFile, if_resize=True, imWidth=imWidth, imHeight=imHeight)
-                uniqueIDList = list(torch.unique(semLabel))
-                insLabelFile = osp.join(insLabDir, '%d.png' % vId)
+                # insLabelFile = osp.join(cfg.insLabDir, '%d.png' % vId)
+                insLabelFile = cfg.insLabById % vId
                 insLabel  = readSegLabel(insLabelFile, if_resize=True, imWidth=imWidth, imHeight=imHeight)
             # # load openroom instance mask list
-            matPartMaskDict, insMaskDict = readMatPartMaskBatch(os.path.join(orSnViewDir, 'partId', 'imcadmatobj_%s.dat' % vId ), bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
-            orInsList = getOrInsList(mat, insMaskDict, orSnViewDir, vId, imWidth, imHeight)
+            matPartMaskDict, insMaskDict = readMatPartMaskBatch(cfg.partIdPathById % int(vId), bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
+            orInsList = getOrInsList(mat, insMaskDict)
             # # load scannet instance mask list
             orMatPart = th.from_numpy(matPartMaskDict[mat]).unsqueeze(0).unsqueeze(1)
             #print(mat, th.sum(orMatPart))
-            #orMatPart = orData['matMask']
-            if gtMaskDir is None:
+            if cfg.gtMaskDir is None:
                 snIns = getSnInsMap(mat, orMatPart, labelMapDict, semLabel, insLabel)
             else:
-                maskFile = osp.join(gtMaskDir, mat, '%d.png' % vId)
+                # maskFile = osp.join(gtMaskDir, mat, '%d.png' % vId)
+                maskFile = cfg.gtMaskByNameId % (mat, vId)
                 snIns = readGtMask(maskFile, imWidth=imWidth, imHeight=imHeight, readAlpha=True)
             snInsList = getSnInsList(snIns)
             if 'wall' in mat and len(snInsList) == 1:
@@ -663,10 +548,12 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             uvOut = th.zeros_like(orUvMap, requires_grad=False) # [1, 2, h, w]
             warpedOrNormalOut = th.zeros_like(orNormal, requires_grad=False) # [1, 3, h, w]
             orWarpedList = []
-            maskSaveDir = os.path.join(outputSaveDir, mat)
+            # maskSaveDir = os.path.join(cfg.outputSaveDir, mat)
+            maskSaveDir = cfg.outputDirByName % mat
             if not os.path.exists(maskSaveDir):
                 os.system('mkdir -p %s' % maskSaveDir)
-            with open(os.path.join(maskSaveDir, '%d_warpInfo.txt' % vId), 'w') as f:
+            # with open(os.path.join(maskSaveDir, '%d_warpInfo.txt' % vId), 'w') as f:
+            with open(cfg.warpInfoByNameId % (mat, vId), 'w') as f:
                 f.write('centerOrX centerOrY centerSnX centerSnY lengthOrX lengthOrY lengthSnX lengthSnY \n')
             for idx, orIns in enumerate(orInsSelect):
                 snSemMask = snInsSelect[idx]
@@ -676,19 +563,13 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 prevC = center1
                 prevL = length1
                 optimizer = th.optim.Adam([center1.requires_grad_(), length1.requires_grad_()], lr=1e-4)
-                #optimizer = th.optim.Adam([center1.requires_grad_()], lr=1e-4)
                 orIns = orIns.float()
                 _, _, H, W = orIns.shape
                 xTH = 1 / W * 2
                 yTH = 1 / H * 2
                 for t in range(200): # ---> use openroom object mask and scannet semantic mask to align
                     warpedOrIns = transformInp(orIns, center1, centerOpt, length1, lengthOpt)
-                    #warpedOrNormal = transformInp(orNormal, center1, centerOpt, length1, lengthOpt)
                     loss = - th.sum(warpedOrIns*snSemMask) / th.sum(warpedOrIns + snSemMask - warpedOrIns*snSemMask)
-                    #print(loss)
-                    if t % 100 == 99:
-                        print(loss.item())
-                        print(center1, length1)
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
@@ -707,12 +588,12 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 warpedMatPartJoint = jointMask(warpedMatPart, warpedOrNormal, snNormal, normalTH)
                 warpedUvMap        = transformInp(orUvMap, center1, centerOpt, length1, lengthOpt) # 1 x 2 x H x W
                 # Update accumulated output mask and uvmap
-                #maskJoint   = warpedOrIns.detach() * snSemMask
                 maskWarpedJointOut = warpedMatPartJoint * warpedMatPartJoint + (1-warpedMatPartJoint) * maskWarpedJointOut
                 maskWarpedOut      = warpedMatPart      * warpedMatPart      + (1-warpedMatPart)      * maskWarpedOut
                 uvOut              = warpedMatPart      * warpedUvMap        + (1-warpedMatPart)      * uvOut
                 warpedOrNormalOut  = warpedMatPart      * warpedOrNormal     + (1-warpedMatPart)      * warpedOrNormalOut
-                with open(os.path.join(maskSaveDir, '%d_warpInfo.txt' % vId), 'a') as f:
+                # with open(os.path.join(maskSaveDir, '%d_warpInfo.txt' % vId), 'a') as f:
+                with open(cfg.warpInfoByNameId % (mat, vId), 'a') as f:
                     f.write('%f %f %f %f %f %f %f %f \n' % \
                         (center1[0].item(), center1[1].item(), centerOpt[0].item(), centerOpt[1].item(), \
                         length1[0].item(), length1[1].item(), lengthOpt[0].item(), lengthOpt[1].item()))
@@ -725,111 +606,82 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             snMask = postProcess(snMask)
             #print('\n', mat, len(orInsSelect), len(snInsSelect), len(orInsList), len(snInsList), th.unique(snIns), th.unique(semLabel), th.unique(insLabel), th.sum(snMask), '\n')
             snMaskWeighted = th.sum(snNormal * warpedOrNormalOut, dim=1, keepdim=True) * snMask
-            print('\n', mat, len(orInsSelect), len(snInsSelect), len(orInsList), len(snInsList), th.sum(snMask), th.sum(snMaskJoint), th.sum(snMaskWeighted), '\n')
-            #if th.sum(snMask) < 400:
+            # print('\n', mat, len(orInsSelect), len(snInsSelect), len(orInsList), len(snInsList), th.sum(snMask), th.sum(snMaskJoint), th.sum(snMaskWeighted), '\n')
             if th.sum(snMaskJoint) < 500:
-                print('')
-                print('-----> %s Joint Mask with accurate normals is too small, only %d pixels!' % (mat, th.sum(snMask) ) )
-                # failedMatDict[mat] = {'albedoPath': albedoPath, 'normalPath': normalPath, 'roughPath': roughPath}
+                # print('-----> %s Joint Mask with accurate normals is too small, only %d pixels!' % (mat, th.sum(snMask) ) )
                 if th.sum(snMask) > 0:
                     selectedViewSmallMaskDict[mat] = selectedViewDict[mat]
                 else:
                     selectedViewNoMaskDict[mat] = selectedViewDict[mat]
-                    print('Zero pixels, move to selectedNoMaskDict!')
-                # continue
+                    # print('Zero pixels, move to selectedNoMaskDict!')
+
             # Save Results: 
-            
-            # if mat == '02818832_d7b9238af2efa963c862eec8232fff1e_part1':
-            #     print('-----> Save DEBUG!!!!')
-            #     for idx, ii in enumerate(orInsList):
-            #         mm1 = Image.fromarray(applyColorMap(ii).astype(np.uint8) )
-            #         mm1.save(osp.join(maskSaveDir, '%s_orIns_%d.png' % (vId, idx) ) )
-            #     for idx, ii in enumerate(snInsList):
-            #         mm1 = Image.fromarray(applyColorMap(ii).astype(np.uint8) )
-            #         mm1.save(osp.join(maskSaveDir, '%s_snIns_%d.png' % (vId, idx) ) )
-            #     for idx, ii in enumerate(orInsSelect):
-            #         mm1 = Image.fromarray(applyColorMap(ii).astype(np.uint8) )
-            #         mm1.save(osp.join(maskSaveDir, '%s_orInsSelect_%d.png' % (vId, idx) ) )
-            #     for idx, ii in enumerate(snInsSelect):
-            #         mm1 = Image.fromarray(applyColorMap(ii).astype(np.uint8) )
-            #         mm1.save(osp.join(maskSaveDir, '%s_snInsSelect_%d.png' % (vId, idx) ) )
-            # GT
             camIdOpt = vId
             mm1 = Image.fromarray((orMatPart.squeeze().numpy() * 255).astype(np.uint8) )
-            mm1.save(osp.join(maskSaveDir, '%s_maskOR.png' % camIdOpt))
-            print('Part Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskOR.png' % camIdOpt) ) )
-            # mm1 = Image.fromarray((insMaskOpt.squeeze().numpy()).astype(np.uint8) )
-            # mm1.save(osp.join(maskSaveDir, '%s_maskORins.png' % camIdOpt))
-            # print('Instance Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskORins.png' % camIdOpt) ) )
-            # mm1 = Image.fromarray(applyColorMap(insMaskOpt).astype(np.uint8) )
-            # mm1.save(osp.join(maskSaveDir, '%s_maskORinsColor.png' % camIdOpt))
-            # print('Instance Mask with colormap of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskORinsColor.png' % camIdOpt) ) )
-            # semOpt = matSelectDict[mat]['snSemMask']
-            # mm1 = Image.fromarray((semOpt.squeeze().numpy() * 255).astype(np.uint8) )
-            # mm1.save(osp.join(maskSaveDir, '%s_maskSNsem.png' % camIdOpt))
-            # print('ScanNet Semantic Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskSNsem.png' % camIdOpt) ) )
-            # insOpt = matSelectDict[mat]['snInsMask']
-            # insOpt = snIns
-            # mm1 = Image.fromarray((insOpt.squeeze().numpy()).astype(np.uint8) )
-            # mm1.save(osp.join(maskSaveDir, '%s_maskSNins.png' % camIdOpt))
-            # print('ScanNet Instance Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskSNins.png' % camIdOpt) ) )
-            # mm1 = Image.fromarray(applyColorMap(insOpt).astype(np.uint8) )
-            # mm1.save(osp.join(maskSaveDir, '%s_maskSNinsGTColor.png' % camIdOpt))
-            # print('ScanNet Instance Mask with colormap of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskSNinsGTColor.png' % camIdOpt) ) )
+            # mm1.save(osp.join(maskSaveDir, '%s_maskOR.png' % camIdOpt))
+            mm1.save(cfg.maskGeoByNameId % (mat, vId))
+            # print('Part Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskOR.png' % camIdOpt) ) )
             # Matched Results 
             outDir = maskSaveDir # Warped Results: snMask, snMaskJoint
             im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskSN.png' % vId))
+            # im.save(os.path.join(outDir, '%d_maskSN.png' % vId))
+            im.save(cfg.maskPhotoByNameId % (mat, vId))
             snMaskJoint = snMaskJoint.long()   
             im = snMaskJoint.squeeze().cpu().detach().numpy().astype(int) 
             im = Image.fromarray( (im.astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskSNJoint.png' % vId))
+            # im.save(os.path.join(outDir, '%d_maskSNJoint.png' % vId))
+            im.save(cfg.maskPhotoJointByNameId % (mat, vId))
             snMaskWeighted = th.sum(snNormal * warpedOrNormalOut, dim=1, keepdim=True) * snMask
             im = snMaskWeighted.squeeze().cpu().detach().numpy() 
             im = Image.fromarray( (im.astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskSNWeight.png' % vId))
+            # im.save(os.path.join(outDir, '%d_maskSNWeight.png' % vId))
+            im.save(cfg.maskPhotoWeightByNameId % (mat, vId))
             # - Raw UV
-            np.save(os.path.join(maskSaveDir, '%d_imuvcoordWarped.npy' % vId), uvMapWarped.cpu().numpy())
+            # np.save(os.path.join(maskSaveDir, '%d_imuvcoordWarped.npy' % vId), uvMapWarped.cpu().numpy())
+            np.save(cfg.uvWarpedByNameId % (mat, vId), uvMapWarped.cpu().numpy())
             # - visualize UV
-            im = uvMapWarped.squeeze().detach().cpu().numpy() # H x W x 2
-            im = im - np.floor(im)
-            im = Image.fromarray( (np.concatenate([im, np.ones((im.shape[0], im.shape[1], 1))], axis=2) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_imuvcoordWarped.png' % vId))
-            im = orUvMap.permute(0, 2, 3, 1).squeeze().detach().cpu().numpy() # H x W x 2
-            im = im - np.floor(im)
-            im = Image.fromarray( (np.concatenate([im, np.ones((im.shape[0], im.shape[1], 1))], axis=2) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_imuvcoordUnwarped.png' % vId))
+            # im = uvMapWarped.squeeze().detach().cpu().numpy() # H x W x 2
+            # im = im - np.floor(im)
+            # im = Image.fromarray( (np.concatenate([im, np.ones((im.shape[0], im.shape[1], 1))], axis=2) * 255.0).astype(np.uint8) )
+            # # im.save(os.path.join(outDir, '%d_imuvcoordWarped.png' % vId))
+            # im.save(cfg.uvWarpedVisByNameId % (mat, vId))
+            # im = orUvMap.permute(0, 2, 3, 1).squeeze().detach().cpu().numpy() # H x W x 2
+            # im = im - np.floor(im)
+            # im = Image.fromarray( (np.concatenate([im, np.ones((im.shape[0], im.shape[1], 1))], axis=2) * 255.0).astype(np.uint8) )
+            # # im.save(os.path.join(outDir, '%d_imuvcoordUnwarped.png' % vId))
+            # im.save(cfg.uvUnwarpedVisByNameId % (mat, vId))
             # - color instance for openroom and scannet
-            colorMaskORIns = segList2ColorMask(orInsSelect)
-            im = Image.fromarray( colorMaskORIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
-            im.save(os.path.join(outDir, '%d_maskORInsMatchedColor.png' % (vId) ) )
-            colorMaskSNIns = segList2ColorMask(snInsSelect)
-            im = Image.fromarray( colorMaskSNIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
-            im.save(os.path.join(outDir, '%d_maskSNInsMatchedColor.png' % (vId) ) )            
-            # GT instance
-            colorGTORIns = segList2ColorMask(orInsList)
-            im = Image.fromarray( colorGTORIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
-            im.save(os.path.join(outDir, '%d_maskORInsGTColor.png' % (vId) ) )
-            colorGTSNIns = segList2ColorMask(snInsList)
-            im = Image.fromarray( colorGTSNIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
-            im.save(os.path.join(outDir, '%d_maskSNInsGTColor.png' % (vId) ) )
-            #### test
-            colorMaskOR2SNMatPart = segList2ColorMask(orWarpedList)
-            im = Image.fromarray( colorMaskOR2SNMatPart.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
-            im.save(os.path.join(outDir, '%d_maskOR2SNMatPartMatchedColor.png' % (vId) ) ) # Should be maskSN.png
+            # colorMaskORIns = segList2ColorMask(orInsSelect)
+            # im = Image.fromarray( colorMaskORIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
+            # im.save(os.path.join(outDir, '%d_maskORInsMatchedColor.png' % (vId) ) )
+            # colorMaskSNIns = segList2ColorMask(snInsSelect)
+            # im = Image.fromarray( colorMaskSNIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
+            # im.save(os.path.join(outDir, '%d_maskSNInsMatchedColor.png' % (vId) ) )            
+            # # GT instance
+            # colorGTORIns = segList2ColorMask(orInsList)
+            # im = Image.fromarray( colorGTORIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
+            # im.save(os.path.join(outDir, '%d_maskORInsGTColor.png' % (vId) ) )
+            # colorGTSNIns = segList2ColorMask(snInsList)
+            # im = Image.fromarray( colorGTSNIns.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
+            # im.save(os.path.join(outDir, '%d_maskSNInsGTColor.png' % (vId) ) )
+            # #### test
+            # colorMaskOR2SNMatPart = segList2ColorMask(orWarpedList)
+            # im = Image.fromarray( colorMaskOR2SNMatPart.view(3, orNormal.size(2), orNormal.size(3)).permute(1, 2, 0).cpu().numpy() )
+            # im.save(os.path.join(outDir, '%d_maskOR2SNMatPartMatchedColor.png' % (vId) ) ) # Should be maskSN.png
             # Blend
             target_ref = invRenderData['im']
             im = Image.fromarray( (target_ref.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d.jpg' % vId))
-            target_blend_before = target_ref * orMatPart + 0.3 * target_ref * (~orMatPart)
-            im = Image.fromarray( (target_blend_before.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_blendUnwarped.png' % vId))
-            target_blend_after = target_ref * snMask + 0.3 * target_ref * (1-snMask)
-            im = Image.fromarray( (target_blend_after.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_blendWarped.png' % vId))
-            target_blend_after = target_ref * snMaskJoint + 0.3 * target_ref * (1-snMaskJoint)
-            im = Image.fromarray( (target_blend_after.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_blendWarpedJoint.png' % vId))
+            # im.save(os.path.join(outDir, '%d.jpg' % vId))
+            im.save(cfg.photoByNameId % (mat, vId))
+            # target_blend_before = target_ref * orMatPart + 0.3 * target_ref * (~orMatPart)
+            # im = Image.fromarray( (target_blend_before.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
+            # im.save(os.path.join(outDir, '%d_blendUnwarped.png' % vId))
+            # target_blend_after = target_ref * snMask + 0.3 * target_ref * (1-snMask)
+            # im = Image.fromarray( (target_blend_after.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
+            # im.save(os.path.join(outDir, '%d_blendWarped.png' % vId))
+            # target_blend_after = target_ref * snMaskJoint + 0.3 * target_ref * (1-snMaskJoint)
+            # im = Image.fromarray( (target_blend_after.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
+            # im.save(os.path.join(outDir, '%d_blendWarpedJoint.png' % vId))
 
             # ----> Step 2.5, sn to or: align instance via optimization on iou of mask (and joint normal), also update warped ref
             target_albedo = invRenderData['albedo']
@@ -856,12 +708,7 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 yTH = 1 / H * 2
                 for t in range(200): # ---> use openroom object mask and scannet semantic mask to align
                     warpedSnIns = transformInp(snIns.float(), centerOpt, center1, lengthOpt, length1)
-                    #warpedSnNormal = transformInp(snNormal, centerOpt, center1, lengthOpt, length1)
                     loss = - th.sum(warpedSnIns*orIns) / th.sum(warpedSnIns + orIns - warpedSnIns*orIns)
-                    #print(loss)
-                    if t % 100 == 99:
-                        print(loss.item())
-                        print(center1, length1)
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
@@ -878,12 +725,10 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 # ---> use normal to find valid pixels
                 warpedSnNormal = transformInp(snNormal, centerOpt, center1, lengthOpt, length1)
                 warpedSnMaskJoint = jointMask(warpedSnMask, warpedSnNormal, orNormal, normalTH)
-                #warpedMatPartJoint = jointMask(warpedMatPart, warpedOrNormal, snNormal, normalTH)
                 warpedRefImg      = transformInp(target_ref   , centerOpt, center1, lengthOpt, length1) # 1 x 3 x H x W
                 warpedAlbedo      = transformInp(target_albedo.float(), centerOpt, center1, lengthOpt, length1) # 1 x 3 x H x W
                 warpedRough       = transformInp(target_rough.float() , centerOpt, center1, lengthOpt, length1) # 1 x 1 x H x W
                 # Update accumulated output mask and uvmap
-                #maskJoint   = warpedOrIns.detach() * snSemMask
                 maskWarpedJointOut = warpedSnMaskJoint * warpedSnMaskJoint + (1-warpedSnMaskJoint) * maskWarpedJointOut
                 maskWarpedOut      = warpedSnMask      * warpedSnMask      + (1-warpedSnMask)      * maskWarpedOut
                 targetOut          = warpedSnMask      * warpedRefImg      + (1-warpedSnMask)      * targetOut
@@ -893,39 +738,41 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
             
             orMaskFromSn, orMaskFromSnJoint, targetWarpedFromSn = maskWarpedOut, maskWarpedJointOut, targetOut.permute(0, 2, 3, 1).detach()
             im = Image.fromarray( (orMaskFromSn.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskORfromSN.png' % vId))
-            #orMaskFromSnJoint = orMaskFromSnJoint.long()   
+            # im.save(os.path.join(outDir, '%d_maskORfromSN.png' % vId))
+            im.save(cfg.maskGeoFromPhotoByNameId % (mat, vId))
             orMaskFromSnJoint = postProcess(orMaskFromSnJoint)
             im = orMaskFromSnJoint.squeeze().cpu().detach().numpy().astype(int) 
             im = Image.fromarray( (im.astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskORfromSNJoint.png' % vId))
+            # im.save(os.path.join(outDir, '%d_maskORfromSNJoint.png' % vId))
+            im.save(cfg.maskGeoFromPhotoJointByNameId % (mat, vId))
             orMaskFromSnWeighted = th.sum(targetNormalOut * orNormal, dim=1, keepdim=True) * orMaskFromSn
             im = orMaskFromSnWeighted.squeeze().cpu().detach().numpy() 
             im = Image.fromarray( (im.astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_maskORfromSNWeight.png' % vId))
+            # im.save(os.path.join(outDir, '%d_maskORfromSNWeight.png' % vId))
+            im.save(cfg.maskGeoFromPhotoWeightByNameId % (mat, vId))
             im = Image.fromarray( (targetWarpedFromSn.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_targetORfromSN.png' % vId))
+            # im.save(os.path.join(outDir, '%d_targetORfromSN.png' % vId))
+            im.save(cfg.targetGeoFromPhotoByNameId % (mat, vId))
             targetWarped_blend = targetOut * orMatPart + 0.3 * targetOut * (~orMatPart)
             im = Image.fromarray( (targetWarped_blend.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_blendTargetORfromSN.png' % vId))
+            # im.save(os.path.join(outDir, '%d_blendTargetORfromSN.png' % vId))
+            im.save(cfg.targetBlendGeoFromPhotoByNameId % (mat, vId))
             targetAlbedoWarpedFromSn = targetAlbedoOut.permute(0, 2, 3, 1).detach()
             im = Image.fromarray( (targetAlbedoWarpedFromSn.squeeze().cpu().detach().numpy().astype(np.float) ** (1/2.2) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_albedoORfromSN.png' % vId))
+            # im.save(os.path.join(outDir, '%d_albedoORfromSN.png' % vId))
+            im.save(cfg.albedoGeoFromPhotoByNameId % (mat, vId))
             targetRoughWarpedFromSn = targetRoughOut.permute(0, 2, 3, 1).detach()
             im = Image.fromarray( (targetRoughWarpedFromSn.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            im.save(os.path.join(outDir, '%d_roughORfromSN.png' % vId))
+            # im.save(os.path.join(outDir, '%d_roughORfromSN.png' % vId))
+            im.save(cfg.roughGeoFromPhotoByNameId % (mat, vId))
 
-        # selectedViewFullDict = copy.deepcopy(selectedViewDict)
-        # for failed in failedMatDict.keys():
         for failedDict in [selectedViewSmallMaskDict, selectedViewNoMaskDict]:
             for failed in failedDict.keys():
                 if not failed in selectedViewDict.keys():
                     continue
-                # print('-----> Delete failed material %s from list.' % failed)
-                print('-----> Move failed material %s from selectedViewDict to selectedViewSmallMaskDict.' % failed)
+                # print('-----> Move failed material %s from selectedViewDict to selectedViewSmallMaskDict.' % failed)
                 del selectedViewDict[failed]
         saveViewDict(selectedViewFile, selectedViewDict)
-        # saveFailedMatDict(failedMatDictFile, failedMatDict)
         saveViewDict(selectedViewSmallMaskDictFile, selectedViewSmallMaskDict)
         
         ##### Save the closest instance mask for the remaining material without any masks (semantic mask not found) #####
@@ -937,7 +784,7 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                 viewBest = -1
                 for camId in candidateCamIdList:
                     matPartMaskDict, insMaskDict = \
-                        readMatPartMaskBatch(os.path.join(orSnViewDir, 'partId', 'imcadmatobj_%s.dat' % camId ), \
+                        readMatPartMaskBatch(cfg.partIdPathById % int(camId), \
                             bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
                     if mat not in matPartMaskDict.keys(): # if mat not found in current matPartMask
                         continue
@@ -948,43 +795,29 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                         viewBest = camId
                 
                 if viewBest == -1: # skip if material even not exist in OpenRoom partMask
-                    print('-----> No instance mask matched for %s. Skip!' % mat)
+                    # print('-----> No instance mask matched for %s. Skip!' % mat)
                     continue
-                print('-----> Saving instance mask for %s' % mat)
+                # print('-----> Saving instance mask for %s' % mat)
                 camId = viewBest
                 selectedViewNoMaskDict[mat] = viewBest
                 # load openroom instance mask list
                 matPartMaskDict, insMaskDict = \
-                    readMatPartMaskBatch(os.path.join(orSnViewDir, 'partId', 'imcadmatobj_%s.dat' % camId ), \
+                    readMatPartMaskBatch(cfg.partIdPathById % int(camId), \
                         bsdfIdDict, if_resize=True, imWidth=imWidth, imHeight=imHeight)
                 orMatPart = th.from_numpy(matPartMaskDict[mat]).unsqueeze(0).unsqueeze(1)
-                orInsList = getOrInsList(mat, insMaskDict, orSnViewDir, camId, imWidth, imHeight)
-                if gtMaskDir is None:
-                # Read ScanNet instance labels
-                    insLabelFile = osp.join(insLabDir, '%d.png' % camId)
+                orInsList = getOrInsList(mat, insMaskDict)
+                if cfg.gtMaskDir is None:
+                # Read instance labels from photo
+                    # insLabelFile = osp.join(cfg.insLabDir, '%d.png' % camId)
+                    insLabelFile = cfg.insLabById % camId
                     insLabel  = readSegLabel(insLabelFile, if_resize=True, imWidth=imWidth, imHeight=imHeight)
-                    # snIns = getSnInsMap(mat, orMatPart, labelMapDict, semLabel, insLabel) # -> reduce insLabel to semantic related
-                    # snInsList = getSnInsList(snIns)
-                    print(th.unique(insLabel))
-                    print(th.unique(insLabel+1))
                     snInsList = getSnInsList(insLabel+1) # collect instances with ID != 0
                 else:
-                    maskFile = osp.join(gtMaskDir, mat, '%d.png' % camId)
+                    # maskFile = osp.join(gtMaskDir, mat, '%d.png' % camId)
+                    maskFile = cfg.gtMaskByNameId % (mat, camId)
                     snIns = readGtMask(maskFile, imWidth=imWidth, imHeight=imHeight, readAlpha=True)
                     snInsList = getSnInsList(snIns)
                 
-                # if 'wall' in mat and len(snInsList) == 1:
-                #     snInsList = segFromNormal(snNormal, snInsList[0], threshold=0.95)
-                # ----> Step 1: Instance level pair matching
-                # orInsSelect, snInsSelect = matchInsList(orInsList, snInsList)
-                # orInsSelect, snInsSelect = matchInsList([orMatPart], snInsList)
-                # ----> Step 2: Collect matched ScanNet masks
-                # maskOut = th.zeros_like(orInsSelect[0], requires_grad=False)
-                # for idx, orIns in enumerate(orInsSelect):
-                #     snSemMask = snInsSelect[idx].float()
-                #     maskOut            = snSemMask          * snSemMask          + (1-snSemMask)          * maskOut
-                # snMask = maskOut        
-                # snMask = postProcess(snMask)
                 intersectionMax = 0
                 ### First use hard intersection to find the mask
                 for idx, snInsMask in enumerate(snInsList):
@@ -997,8 +830,6 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                     mIoUMax = 0
                     for idx, snInsMask in enumerate(snInsList):
                         orInsMaskSoft = toSoftMask(orMatPart)
-                        #intersection = th.sum(orInsMaskSoft * snInsMask.float() )
-                        #union     = th.sum(orInsMaskSoft + snInsMask.float() )
                         snInsMaskSoft = toSoftMask(snInsMask)
                         intersection = th.sum(orInsMaskSoft * snInsMaskSoft )
                         union = th.sum(orInsMaskSoft + snInsMaskSoft )
@@ -1006,16 +837,13 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
                         if mIoU > mIoUMax and mIoU > 0:
                             mIoUMax = mIoU
                             snMask = snInsMask
-                            ##### DEBUG #####
-                            # interMask = orMatPart * snInsMask
-                            # im = Image.fromarray( (interMask.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-                            # im.save(os.path.join(outputSaveDir, mat, '%d_maskSN_inter_%d.png' % (camId, idx)))
 
                 im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-                # im = Image.fromarray( (orMatPart.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-                if not os.path.exists(os.path.join(outputSaveDir, mat)):
-                    os.system('mkdir -p %s' % os.path.join(outputSaveDir, mat))
-                im.save(os.path.join(outputSaveDir, mat, '%d_maskSN.png' % camId))
+                # if not os.path.exists(os.path.join(cfg.outputSaveDir, mat)):
+                #     os.system('mkdir -p %s' % os.path.join(cfg.outputSaveDir, mat))
+                # im.save(os.path.join(cfg.outputSaveDir, mat, '%d_maskSN.png' % camId))
+                # im.save(osp.join(maskSaveDir, '%d_maskSN.png' % camId))
+                im.save(cfg.maskPhotoByNameId % (mat, camId))
 
         saveViewDict(selectedViewNoMaskDictFile, selectedViewNoMaskDict)
 
@@ -1029,33 +857,8 @@ def selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir
         selectedViewSmallMaskDict = readViewDict(selectedViewSmallMaskDictFile)
         selectedViewNoMaskDict = readViewDict(selectedViewNoMaskDictFile)
         selectedViewFullDict = readViewDict(selectedViewFullDictFile)
-    # return selectedViewDict, failedMatDict
+
     return selectedViewDict, selectedViewSmallMaskDict, selectedViewFullDict
-
-def getColorMap(nColor):
-    cMap = []
-    for c in range(nColor):
-        hue = c / nColor * 360.0
-        lightness = 0.4 + 0.1 * (c % 3)
-        saturation = 0.9
-        color_hls = np.array([hue, lightness, saturation])[np.newaxis, np.newaxis, :] * 255.0
-        color_rgb = cv2.cvtColor(color_hls.astype(np.uint8), cv2.COLOR_HLS2RGB)
-        cMap.append(color_rgb.squeeze())
-    return np.stack(cMap, axis=0) # nColor x 3
-
-def applyColorMap(seg): # H x W, with int labels
-    H, W = seg.size(2), seg.size(3)
-    ids = torch.unique(seg)
-    nSeg = ids.size(0)
-    cMap = torch.tensor(getColorMap(nSeg) ) # nColor x 3
-    colorMap = torch.zeros_like(seg).repeat(1, 3, 1, 1).byte().view(3, -1)
-    for idx, ii in enumerate(list(ids)):
-        m = seg == ii
-        if ii==0:
-            colorMap[:, m.view(-1)] = torch.zeros(3).view(3, 1).byte()
-        else:
-            colorMap[:, m.view(-1)] = cMap[idx].view(3, 1)
-    return colorMap.permute(1, 0).view(H, W, 3).numpy()
 
 def saveSelectedCamAndId(matViewDict, selectedCamFile, selectedCamIdFile, newCamDir):
     vNum = len(matViewDict.keys())
@@ -1072,10 +875,10 @@ def saveSelectedCamAndId(matViewDict, selectedCamFile, selectedCamIdFile, newCam
             cam.write('{} {} {}\n'.format(origin[0], origin[1], origin[2]))
             cam.write('{} {} {}\n'.format(target[0], target[1], target[2]))
             cam.write('{} {} {}\n'.format(up[0], up[1], up[2]))
-    print('New cam file for selected views is saved at %s' % selectedCamFile)
+    # print('New cam file for selected views is saved at %s' % selectedCamFile)
     with open(selectedCamIdFile, 'w') as cam:
         cam.writelines('%d ' % camId for camId in vIdList)
-    print('New camId file for selected views is saved at %s' % selectedCamIdFile)
+    # print('New camId file for selected views is saved at %s' % selectedCamIdFile)
     return vIdList
 
 def saveCandidateCamFile(vIdList, outCamFile, newCamDir):
@@ -1090,27 +893,14 @@ def saveCandidateCamFile(vIdList, outCamFile, newCamDir):
             cam.write('{} {} {}\n'.format(origin[0], origin[1], origin[2]))
             cam.write('{} {} {}\n'.format(target[0], target[1], target[2]))
             cam.write('{} {} {}\n'.format(up[0], up[1], up[2]))
-    print('New cam file for selected views is saved at %s' % selectedCamFile)
+    print('New cam file for selected views is saved at %s' % outCamFile)
 
-def genImListForInit(camIdList, initPerPixelImListFile, ext='jpg'):
-    with open(initPerPixelImListFile, 'w') as f:
-        for cId in camIdList:
-            f.writelines('%s.%s\n' % (cId, ext) )
-    print('image list file has been saved at %s' % initPerPixelImListFile)
-    print('please continue inference inverse rendering predictions!')
-
-
-def copyScanNetView(selectedViewIdList, snColorDir, photoSrcDir, ext='jpg' ):
-    #for mat in selectedViewDict.keys():
+def copySelectedPhoto(selectedViewIdList, photoDir, photoSrcDir, ext='png' ):
+    if not osp.exists(photoDir):
+        os.system('mkdir -p %s' % photoDir)
     for vId in selectedViewIdList:
-        #vId = selectedViewDict[mat]
         srcImg = osp.join(photoSrcDir, '%d.%s' % (vId, ext))
-        #tgtDir = osp.join(outputSaveDir, mat)
-        # cmd = 'cp %s %s' % (srcImg, tgtDir)
-        # print(cmd)
-        # os.system(cmd)
-        cmd = 'cp %s %s' % (srcImg, snColorDir)
-        print(cmd)
+        cmd = 'cp %s %s' % (srcImg, photoDir)
         os.system(cmd)
 
 def saveSelectedCam(camPoseDict, selectedCamFile):
@@ -1122,7 +912,6 @@ def saveSelectedCam(camPoseDict, selectedCamFile):
         cam.write('%s\n' % camPoseDict['up'])
     print('New cam file for selected views is saved at %s' % selectedCamFile)
 
-########################
 def readCamPoseDictList(newCamFile):
     lc = 0
     camPoseDictList = []
@@ -1260,7 +1049,6 @@ def updateXMLFromTotal3D(cfg):
                     if items[0] == 'v':
                         vList.append(np.array([float(items[1]), float(items[2]), float(items[3])]))
             vArr = np.stack(vList, axis=0)
-            # return np.amin(vList, axis=0), np.amax(vList, axis=0)
             return vArr
 
         def getMinMax(vArr):
@@ -1269,8 +1057,6 @@ def updateXMLFromTotal3D(cfg):
         shapeCnt, bsdfCnt = shapeCntInit, bsdfCntInit
         for objIdx, objDict in enumerate(objDictList):
             basis, coeffs, centroid, classId = objDict[0][0] # basis, coeffs, centroid, classId
-            # print('\n\n######## %d #########' % objIdx)
-            # print(basis, coeffs, centroid, classId)
             objSrc = osp.join(total3dOutputDir, '%d_%d.obj' % (objIdx, classId[0]))
             objUV = osp.join(meshSaveDir, osp.basename(objSrc))
             os.system(blenderApplyUvCmdPre % (objSrc, objUV))
@@ -1297,7 +1083,6 @@ def updateXMLFromTotal3D(cfg):
                 x = math.atan2(-R[1,2], R[1,1])
                 y = math.atan2(-R[2,0], sy)
                 z = 0
-            # scale = max(coeffs[0][0], coeffs[0][1], coeffs[0][2])
 
             opList = ['translate', 'scale', 'rotate', 'rotate', 'rotate', 'translate']
             attribList = [ {'x': str(-meshCenter[0]), 'y': str(-meshCenter[1]), 'z': str(-meshCenter[2])}, \
@@ -1341,9 +1126,6 @@ def updateXMLFromTotal3D(cfg):
                 newVList = []
                 newFList = []
                 pos = corner + (0.5 + n1) * step1 * axis1 + (0.5 + n2) * step2 * axis2
-                # print(n1, n2, pos, isInside(pos, verts))
-                # if not isInside(pos, verts):
-                #     continue
                 v1 = pos + lSize1 * axis1 + lSize2 * axis2
                 v2 = pos + lSize1 * axis1 - lSize2 * axis2
                 v3 = pos - lSize1 * axis1 - lSize2 * axis2
@@ -1387,12 +1169,13 @@ def updateXMLFromTotal3D(cfg):
             res = int( (H - (W * 3 / 4)) // 2 )
             img = img[res:H-res, :, :]
         im = Image.fromarray(img)
+        if not osp.exists(osp.dirname(photoSavePath)):
+            os.makedirs(osp.dirname(photoSavePath))
         im.save(photoSavePath)
         HNew, WNew, CNew = img.shape
 
         focusX, prinX = intrinsicMat[0, 0], intrinsicMat[0, 2]
         focusY, prinY = intrinsicMat[1, 1], intrinsicMat[1, 2]
-        # print(focusX, focusY, prinX, prinY)
         tan = float(prinX) / (0.5 * float(focusX) + 0.5 * float(focusY))
         fovX = np.rad2deg( np.arctan( WNew * tan / W ) ) * 2
 
@@ -1403,8 +1186,6 @@ def updateXMLFromTotal3D(cfg):
         origin = np.array([0, 0, 0])
         target = np.matmul(rot_cam, np.array([1, 0, 0]))
         up = np.matmul(rot_cam, np.array([0, 1, 0]))
-
-        # print(origin, target, up)
 
         camInfoDict = {}
         camInfoDict['target'] = '%f %f %f' % (target[0], target[1], target[2])
@@ -1444,9 +1225,9 @@ def updateXMLFromTotal3D(cfg):
                         'sampler_type': 'adaptive', 'sample_count': '128'}
     envInfoDict = {'envPath': cfg.envFile, 'scale': '1.0'}
     xmlInfoDict = {'shape': objInfoDict, 'bsdf': matInfoDict, 'sensor': sensorInfoDict, 'emitter': envInfoDict}
-    _ = createXmlFromInfoDict(cfg.xmlFile, xmlInfoDict)
+    _ = createXmlFromInfoDict(cfg.xmlSrcFile, xmlInfoDict)
 
-    saveSelectedCam(camInfoDict, cfg.selectedCamFile)
+    saveSelectedCam(camInfoDict, cfg.srcCamFile)
 
     return [camInfoDict], emitterList 
 
@@ -1465,6 +1246,8 @@ def saveCamFile(newCamFile, newCamIdFile, newCamDir, camIdList, camPoseDictList)
 
         camId = camIdList[idx]
         singleCamFile = osp.join(newCamDir, '%s.txt' % camId)
+        if not osp.exists(newCamDir):
+            os.makedirs(newCamDir)
         # save separate single cam file
         with open(singleCamFile, 'w') as cam:
             cam.write('1\n')
@@ -1492,7 +1275,7 @@ def readLabelMapDict(labelMapFile):
 def renderOpenRoom(cfg):
 
     def adjustFileNameByCamId(cfg, item):
-        with open(cfg.newCamFile, 'r') as f:
+        with open(cfg.allCamFile, 'r') as f:
             for line in f.readlines():
                 cNum = int(line.strip())
                 break
@@ -1518,40 +1301,51 @@ def renderOpenRoom(cfg):
         if osp.exists(cfg.partIdRenderDir):
             os.system('rm -r %s' % cfg.partIdRenderDir)
         os.system('mkdir -p %s' % cfg.partIdRenderDir)
-        print('\n---> Rendering partId labels in %s! ' % cfg.partIdRenderDir)
+        print('Rendering partId labels in %s! ' % cfg.partIdRenderDir)
         os.system(cfg.renderPartIdCmd)
         adjustFileNameByCamId(cfg, cfg.partIdItem)
     else:
         if len(os.listdir(cfg.partIdRenderDir))==0:
-            print('\n---> Error: PartId Rendering imcomplete! Please set renderPartId to True!')
+            print('Error: PartId Rendering imcomplete! Please set renderPartId to True!')
             assert(False)
 
     if cfg.renderNormal:
         if osp.exists(cfg.normalRenderDir):
             os.system('rm -r %s' % cfg.normalRenderDir)
         os.system('mkdir -p %s' % cfg.normalRenderDir)
-        print('\n---> Rendering normal labels in %s! ' % cfg.normalRenderDir)
+        print('Rendering normal labels in %s! ' % cfg.normalRenderDir)
         os.system(cfg.renderNormalCmd)
         adjustFileNameByCamId(cfg, cfg.normalItem)
     else:
         if len(os.listdir(cfg.normalRenderDir))==0:
-            print('\n---> Error: Normal Rendering imcomplete! Please set renderNormal to True!')
+            print('Error: Normal Rendering imcomplete! Please set renderNormal to True!')
             assert(False)
 
     if cfg.renderUV:
         if osp.exists(cfg.uvRenderDir):
             os.system('rm -r %s' % cfg.uvRenderDir)
         os.system('mkdir -p %s' % cfg.uvRenderDir)
-        print('\n---> Rendering UV Coord. labels in %s! ' % cfg.uvRenderDir)
+        print('Rendering UV Coord. labels in %s! ' % cfg.uvRenderDir)
         os.system(cfg.renderUvCmd)
         adjustFileNameByCamId(cfg, cfg.uvItem)
     else:
         if len(os.listdir(cfg.uvRenderDir))==0:
-            print('\n---> Error: UVCoord Rendering imcomplete! Please set renderUV to True!')
+            print('Error: UVCoord Rendering imcomplete! Please set renderUV to True!')
+            assert(False)
+
+    if cfg.renderDepth:
+        if osp.exists(cfg.depthRenderDir):
+            os.system('rm -r %s' % cfg.depthRenderDir)
+        os.system('mkdir -p %s' % cfg.depthRenderDir)
+        print('Rendering depth labels in %s! ' % cfg.depthRenderDir)
+        os.system(cfg.renderDepthCmd)
+        adjustFileNameByCamId(cfg, cfg.depthItem)
+    else:
+        if len(os.listdir(cfg.depthRenderDir))==0:
+            print('Error: Depth Rendering imcomplete! Please set renderDepth to True!')
             assert(False)
 
 def sampleView(sampledViewFile, camIdList, newCamDir, baselineAngle=30, baselineDist=1, isOverwrite=False):
-    # sampledViewFile = os.path.join(orSnViewDir, 'sampledViewList.txt')
     
     if isOverwrite or not osp.exists(sampledViewFile):
         # >>>> Select candidate cams via baseline angle and baseline distance
@@ -1591,45 +1385,48 @@ def sampleView(sampledViewFile, camIdList, newCamDir, baselineAngle=30, baseline
         # <<<< Select candidate cams via baseline angle and baseline distance
     else:
         candidateCamIdList = readViewList(sampledViewFile)
-    print('Sampled %d views:' % len(candidateCamIdList))
-    print(candidateCamIdList)
+    print('Sampled %d views:' % len(candidateCamIdList), end='')
+    for cc in candidateCamIdList:
+        print(' %d' % cc, end='')
+    print('')
+    return candidateCamIdList
+
+def genImListForInit(camIdList, initPerPixelImListFile, ext='png'):
+    with open(initPerPixelImListFile, 'w') as f:
+        for cId in camIdList:
+            f.writelines('%s.%s\n' % (cId, ext) )
+
+def readViewList(sampledViewFile):
+    with open(sampledViewFile, 'r') as f:
+        candidateCamIdList = f.readline().strip().split(' ')
+        candidateCamIdList = [int(cId) for cId in candidateCamIdList]
     return candidateCamIdList
 
 if __name__ == '__main__':
+    print('\n\n\n')
     parser = argparse.ArgumentParser(description='Preprocess Script for PhotoScene')
     parser.add_argument('--config', required=True)
     args = parser.parse_args()
 
     cfg = load_cfg(args.config)
-
-    for path in [cfg.outputSaveDir, cfg.snColorDir, cfg.newCamDir]:
-        if not osp.exists(path):
-            os.system('mkdir -p %s' % path)
               
     ##### SUN RGB-D Inputs #####
     if cfg.dataMode == 'total3d': # total 3D
-
-        for path in [cfg.panopticSrcDir, cfg.photoSrcDir]:
-            if not osp.exists(path):
-                os.system('mkdir -p %s' % path)
         
         # Generate Total 3D Inputs 
-        # if not osp.exists(cfg.total3dOutputDir):
-        # convert .pkl to demo folder
-        os.system(cfg.total3dPreprocessCmd)
+        os.system(cfg.total3dPreprocessCmd) # convert .pkl to demo folder
 
         # evaluate with total3d
-        print('\n---> Running Total 3D ...')
+        print('\n---> Running Total 3D ... (This may take a while)')
         os.system(cfg.total3dRunCmd)
      
         # Generate main.xml file for scene configurations
-        # if not osp.exists(cfg.newXmlFile):
         print('\n---> Initializing scene meshes (with UVs) and configurations...')
         camPoseDictList, emitterList = updateXMLFromTotal3D(cfg)
         
         # Generate camera file
         cfg.camIdList       = ['0']
-        saveCamFile(cfg.newCamFile, cfg.newCamIdFile, cfg.newCamDir, cfg.camIdList, camPoseDictList)  
+        saveCamFile(cfg.allCamFile, cfg.allCamIdFile, cfg.allCamDir, cfg.camIdList, camPoseDictList)  
 
         # generate panoptic label
         print('\n---> Running MaskFormer to get panoptic labels...')
@@ -1644,79 +1441,52 @@ if __name__ == '__main__':
     # generate a new xmlfile to enable diff. materials assigned to same shape
     print('\n---> Generating new xml files and model ID file and computing initial UV scale ...')
     _, _ = saveNewModelIdFileAndXmlFile(
-        cfg.xmlFile, cfg.meshSaveDir, modelIdFileNew=cfg.newModelIdFile, xmlFileNew=cfg.newXmlFile)
-    # cfg.orModelIdFile = newModelIdFile
+        cfg.xmlSrcFile, cfg.meshSaveDir, modelIdFileNew=cfg.modelIdFile, xmlFileNew=cfg.xmlFile)
+    _ = saveNewWhiteXML(cfg.xmlFile, imWidth=cfg.initImgWidth, imHeight=cfg.initImgHeight, outPath=cfg.xmlWhiteFile)
 
-    
     # save a new xml file with white materials
-    print('\nRendering the initial partId, normal, uvCoord...')
-    _ = saveNewWhiteXML(cfg.newXmlFile, imWidth=cfg.initImgWidth, imHeight=cfg.initImgHeight, outPath=cfg.newXmlWhiteFile)
+    print('\n---> Rendering the initial partId, normal, uvCoord, depth...')
     renderOpenRoom(cfg)
 
     # >>> get mat part id dict 
-    # modelStrIdDict = readModelStrIdDict(cfg.newModelIdFile)
-    # bsdfIdDict = getBsdfIdDict(cfg.newXmlFile, modelStrIdDict)
-    # with open(cfg.bsdfIdDictFile, 'w') as f:
-    #     for mat in bsdfIdDict.keys():
-    #         line = '%s %s %s\n' % (mat, bsdfIdDict[mat]['cadId'], bsdfIdDict[mat]['matId'])
-    #         f.write(line)
-    # print('BSDF Id Dict saved at %s ' % cfg.bsdfIdDictFile)
+    modelStrIdDict = readModelStrIdDict(cfg.modelIdFile)
+    bsdfIdDict = getBsdfIdDict(cfg.xmlFile, modelStrIdDict)
     # <<< get mat part id dict 
 
-    # >>> sub-sample views, for multi-view (video) input
-    print('\nSub-sampling views from total %d views...' % (len(cfg.camIdList)))
-    sampledIdList = sampleView(cfg.sampledViewFile, cfg.camIdList, cfg.newCamDir, isOverwrite=False)
+    # >>> sub-sample views, for multi-view (video) input, e.g. ScanNet-to-OpenRooms
+    print('\n---> Sub-sampling views from total %d views...' % (len(cfg.camIdList)))
+    sampledIdList = sampleView(cfg.sampledCamIdFile, cfg.camIdList, cfg.allCamDir, isOverwrite=cfg.isOverWriteSampledView)
+    saveCandidateCamFile(sampledIdList, cfg.sampledCamFile, cfg.allCamDir)
+    copySelectedPhoto(sampledIdList, cfg.photoDir, cfg.photoSrcDir )
     # >>> sub-sample views
+
     # >>>>> generate camId list for inverse rendering initialization and material part segments
-    print('\nGenerating inverse rendering initailization...')
+    print('\n---> Generating inverse rendering initailization... (This may take a while)')
     genImListForInit(sampledIdList, cfg.initPerPixelImListFile)
-    assert(False)
-    runInvRender(args.initPerPixelDir, photoSrcDir, cfg.initPerPixelImListFile, cfg.invRenderDir)
-    
+    os.system(cfg.invrenderCmd)
 
-    # >>> get mat part id dict     
-    # with open(cfg.bsdfIdDictFile, 'r') as f:
-    #     bsdfIdDict = {}
-    #     for line in f.readlines():
-    #         mat, cadId, matId = line.strip().split(' ')
-    #         bsdfIdDict[mat] = {'cadId': int(cadId), 'matId': int(matId)}
-    # print('BSDF Id Dict stored from %s ' % cfg.bsdfIdDictFile)
-    # <<< get mat part id dict    
-
-    # >>> view selection and save ground truth openroom material masks for selected views, use scannet semantic labels!
-    
+    # >>> view selection and save ground truth openroom material masks for selected views, use semantic labels!
     # ----vvv Handle view consensus here!!!!! vvv-------
-    
-    candidateCamIdList = readViewList(sampledViewFile)
-    saveCandidateCamFile(candidateCamIdList, sampledCamFile, newCamDir)
-    copyScanNetView(candidateCamIdList, snColorDir, photoSrcDir )
-    # save selected view at selectedViewDict.txt
-    # selectedViewDict, failedMatDict = selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir, \
-    #     imWidth=320, imHeight=240, outputSaveDir=outputSaveDir, \
-    #     snExtractDir=snExtractDir, labelMapDict=labelMapDict, pixNumTH=100, isOverwrite=False, isManual=args.isManual) 
+    print('\n---> Searching for optimal view for each material and saving preprocessed results ...')
     selectedViewDict, selectedViewFailedDict, selectedViewFullDict \
-        = selectViewAndSaveMask(orSnViewDir, candidateCamIdList, bsdfIdDict, newCamDir, \
-                imWidth=320, imHeight=240, outputSaveDir=outputSaveDir, \
-                semLabDir=semLabDir, insLabDir=insLabDir, labelMapDict=labelMapDict, pixNumTH=100, \
-                isOverwrite=False, isManual=args.isManual, gtMaskDir=gtMaskDir) 
-    # xmlFileList = [newXmlFile]
-    # adjustFailedMatFromXml(xmlFileList, failedMatDict)
-
-
-    # Save Single Light XML Files from main_median.xml
-    if args.dataMode == 'scannet' or args.dataMode == 'scannetPred':
-        genSingleLightXMLs(xmlDir, meshSaveDir, scene)
-    elif args.dataMode == 'artist':
-        genSingleLightAreaXMLs(xmlDir, emitterList)
-    elif args.dataMode == 'total3d':
-        genSingleLightAreaXMLs(xmlDir, emitterList)
-    else:
-        assert(False)
-    
+        = selectViewAndSaveMask(cfg, sampledIdList, bsdfIdDict, \
+                imWidth=cfg.imgWidth, imHeight=cfg.imgHeight, \
+                labelMapDict=labelMapDict, \
+                isOverwrite=cfg.isOverWriteSelectedView)     
     # -----^^^ Handle view consensus here!!!!! ^^^-------
     # write cam and camId files for the selected views
-    selectedIdList = saveSelectedCamAndId(selectedViewDict, selectedCamFile, selectedCamIdFile, newCamDir)
+    selectedIdList = saveSelectedCamAndId(selectedViewDict, cfg.selectedCamFile, cfg.selectedCamIdFile, cfg.allCamDir)
     # <<< view selection
+
+    _ = saveNewBaselineXML(cfg, baseline='median')
+
+    # Save Single Light XML Files from main_median.xml
+    if cfg.dataMode == 'total3d':
+        genSingleLightAreaXMLs(cfg, emitterList)
+    else:
+        assert(False)
+
+    print('\n---> Preprocessing is done!\n')
 
 
     
