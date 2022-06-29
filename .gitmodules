@@ -22,3 +22,6 @@
 [submodule "third_party/Total3D"]
 	path = third_party/Total3D
 	url = https://github.com/yuyingyeh/Total3DUnderstanding.git
+[submodule "third_party/PerceptualSimilarity"]
+	path = third_party/PerceptualSimilarity
+	url = https://github.com/richzhang/PerceptualSimilarity.git
