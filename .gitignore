@@ -1,5 +1,10 @@
 # third_party/InverseRenderingOfIndoorScene/models*
-*.zip
-*.pth
+#*.zip
+#*.pth
 #*.sh
-#third_party/*
+*.pyc
+third_party/*
+data/*
+outputs/*
+logs/*
+graphsSamples/*
