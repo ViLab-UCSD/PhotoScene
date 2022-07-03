@@ -1,21 +1,40 @@
 # Machine
 machine: local
 # arguments
-sceneId: 
-  - Total_246
+sceneId: 246
 dataMode: total3d
-renderDefault: false
-renderWhite: false
-renderAssignedMatch: false
-renderAssignedGan: false
-debugTask: assignMatch
-# For debug task, can be random, class, graph
-assignMode: graph
-# if assignMode is class
-assignClass: wood
-# if assignMode is graph
-assignGraph: wood_cedar_white
-expName: total3d
+renderPartId: true
+renderNormal: true
+renderUV: true
+renderDepth: true
+initImgHeight: 480
+initImgWidth: 640
+isOverWriteSampledView: false
+singleLightImgHeight: 240
+singleLightImgWidth: 320
+imgHeight: 240
+imgWidth: 320
+nSamplePerPixel: 2048
+isOverWriteSelectedView: false
+
+# graph selection parameters
+usekNN: true
+graphSelectBatchSize: 6
+graphSelectToGray: false
+kNum : 21
+nSamplePerGraph: 10
+nUvAngStep: 1
+nUvScaleStep: 1
+
+# optimization parameters
+useHomoRough: true
+optObjectives:
+  - stat
+  - vgg
+optObjectivesCoeff:
+  - 100
+  - 1
+
 # n or j
 uvOptimMode: s
 # useful when uvOptimMode is j
@@ -39,22 +58,12 @@ uvSearchParam:
   rotStepNum: 72
   # divide [-0.5, 0.5] into $transStepNum for both X and Y
   transStepNum: 5
-useHomoRough: true
+
 useAlbOffset: true
 matRes: 8
 modeId: 1
 seed: 0
-modeName: 
-  - stat-100-vgg-1
-  # - stat-100-vgg-1-style-500
-  # - stat-100-vgg-1-style-330
-  # - stat-100-vgg-1-style-100
-  # - stat-100-pix-100-vgg-1
-  # - stat-100-pix-100-vgg-1-style-500
-  # - pix-100-vgg-1-style-500
-  # - stat-100-vgg-1-style-500
-  # - stat-100-pix-100-style-500
-  # - stat-100-pix-100-vgg-1
-kNum : 21
+# modeName: stat-100-vgg-1
+
 # yaml
 rootConfig: configs/roots.yaml
