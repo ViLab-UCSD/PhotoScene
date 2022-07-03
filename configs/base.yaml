@@ -1,2 +1,4 @@
+# Machine
+machine: local
 # yaml
 rootConfig: configs/roots.yaml
