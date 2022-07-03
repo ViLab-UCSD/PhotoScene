@@ -6,10 +6,10 @@ IEEE / CVF Computer Vision and Pattern Recognition Conference  (CVPR), 2022 <br>
 
 [[Paper](https://yuyingyeh.github.io/projects/photoscene.html)] [[Project](https://yuyingyeh.github.io/projects/photoscene.html)]
 
-![](yuyingyeh.github.io/projects/photoscene/figure_teaser_video.gif)
+![](https://github.com/yuyingyeh/yuyingyeh.github.io/blob/master/projects/photoscene/teaser.png)
 
-## Introduction
-We're waiting for dependency to be publicly released so that we can incorporate their repository into our framework. Stay tuned and we will update the entire framework soon!
+## Note
+We're waiting for [dependency](http://match.csail.mit.edu) to be publicly released so that we can incorporate their repository into our framework. Stay tuned and we will update the entire framework soon!
 
 ## Citation
 
