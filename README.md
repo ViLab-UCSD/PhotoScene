@@ -16,10 +16,12 @@ We're waiting for [dependency](http://match.csail.mit.edu) to be publicly releas
 Please cite our paper if you find that our method is helpful!
 
 ```BibTeX
-@inproceedings{yeh2020photoscene,
-    title={PhotoScene: Photorealistic Material and Lighting Transfer for Indoor Scenes},
-    author={Yeh, Yu-Ying and Li, Zhengqin and Hold-Geoffroy, Yannick and Zhu, Rui and Xu, Zexiang and Hašan, Miloš and Sunkavalli, Kalyan and Chandraker, Manmohan},
-    booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
-    year={2022}
+@InProceedings{Yeh_2022_CVPR,
+    author    = {Yeh, Yu-Ying and Li, Zhengqin and Hold-Geoffroy, Yannick and Zhu, Rui and Xu, Zexiang and Ha\v{s}an, Milo\v{s} and Sunkavalli, Kalyan and Chandraker, Manmohan},
+    title     = {PhotoScene: Photorealistic Material and Lighting Transfer for Indoor Scenes},
+    booktitle = {Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+    month     = {June},
+    year      = {2022},
+    pages     = {18562-18571}
 }
 ```
