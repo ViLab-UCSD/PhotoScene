@@ -22,9 +22,12 @@
 [submodule "third_party/Total3D"]
 	path = third_party/Total3D
 	url = https://github.com/yuyingyeh/Total3DUnderstanding.git
-[submodule "third_party/PerceptualSimilarity"]
-	path = third_party/PerceptualSimilarity
-	url = https://github.com/richzhang/PerceptualSimilarity.git
 [submodule "third_party/diffmat"]
 	path = third_party/diffmat
 	url = https://github.com/yuyingyeh/diffmat.git
+[submodule "third_party/diffmat-legacy"]
+	path = third_party/diffmat-legacy
+	url = https://github.com/mit-gfx/diffmat-legacy.git
+[submodule "third_party/PerceptualSimilarity"]
+	path = third_party/PerceptualSimilarity
+	url = https://github.com/yuyingyeh/PerceptualSimilarity.git
