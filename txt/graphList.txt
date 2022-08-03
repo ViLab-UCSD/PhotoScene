@@ -67,4 +67,4 @@ wood_procedural
 wood_rhododendron
 wooden_planks
 zombie_skin
-liang_test
+homogeneous
