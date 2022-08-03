@@ -1,14 +1,25 @@
 # Renderer
 OptixRoot: third_party/OptiX
 rendererRoot: third_party/OptiX_Renderer
+
+# Substance Designer install root
+toolkitRoot: /opt/Allegorithmic/Substance_Designer
+# toolkitRoot: /opt/Adobe/Adobe_Substance_3D_Designer
+sbsFileDir: third_party/diffmat-legacy/diffmat/sbs
+# sbsFileDir: third_party/diffmat/test/sbs/match_v1
+
 # MaskFormer Dir
 maskformerRoot: third_party/MaskFormer
+
 # Inverse render net root
 invrenderRoot: third_party/InverseRenderingOfIndoorScene
+
 # Total 3D Dir
 total3dRoot: third_party/Total3D
+
 # data root
 inputDir: data
 outputDir: outputs
+
 # graph sample dir
 graphSampleDir: graphsSamples

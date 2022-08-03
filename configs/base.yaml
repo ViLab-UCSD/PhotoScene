@@ -1,4 +1,56 @@
-# Machine
-machine: local
-# yaml
-rootConfig: configs/roots.yaml
+# preprocess parameters
+dataMode: total3d
+# renderPartId: true
+# renderNormal: true
+# renderUV: true
+# renderDepth: true
+initImgHeight: 480
+initImgWidth: 640
+isOverWriteSampledView: false
+singleLightImgHeight: 240
+singleLightImgWidth: 320
+imgHeight: 240
+imgWidth: 320
+nSamplePerPixel: 2048
+nSamplePerPixelSingle: 16
+nSamplePerPixelLight: 16384
+isOverWriteSelectedView: false
+
+# graph selection parameters
+usekNN: true
+graphSelectBatchSize: 6
+graphSelectToGray: false
+kNum : 15
+nSamplePerGraph: 10
+nUvAngStep: 1
+nUvScaleStep: 1
+
+# optimization parameters
+useHomoRough: true
+optObjectives:
+  - stat
+  - vgg
+optObjectivesCoeff:
+  - 1
+  - 0.01
+matRes: 8
+seed: 0
+device: cuda
+# fov: 57
+
+# UV parameters
+uvInitScale: 1.0
+uvInitRot: 0
+uvInitTrans: 0
+uvScaleBase: 1.5
+# min included
+uvScaleExpMin: -3.5
+# max not included
+uvScaleExpMax: 4.5
+# number of steps between min and max
+### uvSearchParam:
+uvScaleStepNum: 32
+# divide 2PI to $rotStep steps
+uvRotStepNum: 72
+# divide [-0.5, 0.5] into $transStepNum for both X and Y
+uvTransStepNum: 5
