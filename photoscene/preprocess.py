@@ -119,7 +119,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
         label = np.array(Image.open(labelFile) )
         label = th.from_numpy(label).unsqueeze(0).unsqueeze(1)
         if if_resize:
-            label = th.nn.functional.interpolate(label, size=(imHeight, imWidth), mode='nearest', recompute_scale_factor=True)
+            label = th.nn.functional.interpolate(label, size=(imHeight, imWidth), mode='nearest')
         return label.type(th.int )
 
     def readGtMask(maskFile, imWidth=None, imHeight=None, readAlpha=False):
@@ -137,7 +137,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 assert(len(photoMask.shape) == 2)
                 photoMask = photoMask
         snIns = th.tensor(photoMask).unsqueeze(0).unsqueeze(1)
-        snIns = th.nn.functional.interpolate(snIns, size=(imHeight, imWidth), mode='nearest', recompute_scale_factor=True) > 0
+        snIns = th.nn.functional.interpolate(snIns, size=(imHeight, imWidth), mode='nearest') > 0
         return snIns.type(th.int )
 
     def getOrInsList(mat, insMaskDict):
