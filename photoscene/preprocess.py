@@ -1,12 +1,8 @@
 import os
 import os.path as osp
-import xml.etree.ElementTree as ET
 import pickle
 import argparse
-import glob
 import numpy as np
-# import struct
-import torch
 from PIL import Image
 import cv2
 from tqdm import tqdm
@@ -67,9 +63,9 @@ def loadSceneRenderData(cfg, vId, refH, refW):
     depthMap  = th.from_numpy(depthMap).unsqueeze(1) # 1 x 1 x refH*2 x refW*2 
     orNormalFromDepth, validMask = depthToNormal(depthMap) # 1 x 3 x refH*2 x refW*2
     orNormalFromDepth = orNormalFromDepth * validMask.float()
-    orNormalFromDepth = th.nn.functional.interpolate(orNormalFromDepth, scale_factor=(0.5, 0.5))
+    orNormalFromDepth = th.nn.functional.interpolate(orNormalFromDepth, scale_factor=(0.5, 0.5), recompute_scale_factor=True)
 
-    orData = {'uv': uvMapTensor,
+    orData = {  'uv'    : uvMapTensor,
                 'normal': orNormalFromDepth}
     
     return orData
@@ -98,33 +94,33 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 camIdOpt = filePath.split('_')[-1].split('.')[0]
                 normalFile = os.path.join(cfg.normalRenderDir, cfg.normalPathById % int(camIdOpt) )
                 normal = readNormal(normalFile, imWidth, imHeight)
-                orIns = torch.from_numpy(insMaskOpt).unsqueeze(0).unsqueeze(1)
+                orIns = th.from_numpy(insMaskOpt).unsqueeze(0).unsqueeze(1)
                 segList = segFromNormal(normal, orIns, threshold=0.95)
-                insMaskOpt = torch.zeros_like(orIns).view(-1)
+                insMaskOpt = th.zeros_like(orIns).view(-1)
                 for idx, seg in enumerate(segList):
                     insMaskOpt[seg.view(-1)] = idx+1
                 insMaskOpt = insMaskOpt.view(1, 1, imHeight, imWidth) 
             elif '03636649' in mat: # lamp, combine light source with holder
-                insMaskOpt = torch.from_numpy(cadMask).unsqueeze(0).unsqueeze(1)
+                insMaskOpt = th.from_numpy(cadMask).unsqueeze(0).unsqueeze(1)
             elif '02818832' in mat: # bed, decompose it to bed and pillows as different instances
                 # check if mat part it's small part of the instance, e.g.pillow, if yes, further segment, if no, keep original
-                insPart = torch.from_numpy(insIdMap * partMask).unsqueeze(0).unsqueeze(1)
-                insCad = torch.from_numpy(insIdMap * cadMask).unsqueeze(0).unsqueeze(1) 
-                if torch.sum(insPart) < 0.5 * torch.sum(insCad):
+                insPart = th.from_numpy(insIdMap * partMask).unsqueeze(0).unsqueeze(1)
+                insCad = th.from_numpy(insIdMap * cadMask).unsqueeze(0).unsqueeze(1) 
+                if th.sum(insPart) < 0.5 * th.sum(insCad):
                     insMaskOpt = insPart
                 else:
                     insMaskOpt = insCad
             else:
-                insMaskOpt = torch.from_numpy(insIdMap * cadMask).unsqueeze(0).unsqueeze(1) 
+                insMaskOpt = th.from_numpy(insIdMap * cadMask).unsqueeze(0).unsqueeze(1) 
             insMaskDict[mat] = insMaskOpt
         return partMaskDict, insMaskDict
 
     def readSegLabel(labelFile, if_resize=False, imWidth=None, imHeight=None):
         label = np.array(Image.open(labelFile) )
-        label = torch.from_numpy(label).unsqueeze(0).unsqueeze(1)
+        label = th.from_numpy(label).unsqueeze(0).unsqueeze(1)
         if if_resize:
-            label = torch.nn.functional.interpolate(label, size=(imHeight, imWidth), mode='nearest')
-        return label.type(torch.int )
+            label = th.nn.functional.interpolate(label, size=(imHeight, imWidth), mode='nearest', recompute_scale_factor=True)
+        return label.type(th.int )
 
     def readGtMask(maskFile, imWidth=None, imHeight=None, readAlpha=False):
         if not osp.exists(maskFile):
@@ -141,8 +137,8 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 assert(len(photoMask.shape) == 2)
                 photoMask = photoMask
         snIns = th.tensor(photoMask).unsqueeze(0).unsqueeze(1)
-        snIns = torch.nn.functional.interpolate(snIns, size=(imHeight, imWidth), mode='nearest') > 0
-        return snIns.type(torch.int )
+        snIns = th.nn.functional.interpolate(snIns, size=(imHeight, imWidth), mode='nearest', recompute_scale_factor=True) > 0
+        return snIns.type(th.int )
 
     def getOrInsList(mat, insMaskDict):
         insMaskOpt = insMaskDict[mat]    
@@ -167,7 +163,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
             snIDList = labelMapDict[modelID] # map openroom id to scannet id
         else:
             snIDList = th.unique(semLabel).tolist()
-        semBest = torch.zeros_like(semLabel)
+        semBest = th.zeros_like(semLabel)
         ### Find the semantic mask which has best mIoU with matPartMask ###
         bestMIOU = 0
         for snID in snIDList:
@@ -205,7 +201,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 segMask = labels_im==l
                 if np.sum(segMask) > nPixThreshold and l != 0:
                     # print('SegMask sum:', np.sum(segMask))
-                    segMasks.append(torch.tensor(segMask.astype(np.int32)).unsqueeze(0).unsqueeze(1).bool() ) # bool
+                    segMasks.append(th.tensor(segMask.astype(np.int32)).unsqueeze(0).unsqueeze(1).bool() ) # bool
             return segMasks
         # normal: 1 x 3 x H x W; mask: 1 x 1 x H x W
         # output: list of segs with similar normal directions
@@ -213,31 +209,31 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
         normalMasked = normal.view(3, -1)[:, mask.view(-1)] # 3 x nPix
 
         # kmeans: find 1~3 plane normals
-        torch.manual_seed(0)
+        th.manual_seed(0)
         np.random.seed(0)
         kmeans = KMeans(n_clusters=3, random_state=0).fit(normalMasked.permute(1, 0).cpu().numpy())
-        cluster_centers = torch.from_numpy(kmeans.cluster_centers_)
+        cluster_centers = th.from_numpy(kmeans.cluster_centers_)
 
-        cond01 = torch.sum(cluster_centers[0] * cluster_centers[1]) > threshold
-        cond02 = torch.sum(cluster_centers[0] * cluster_centers[2]) > threshold
-        cond12 = torch.sum(cluster_centers[1] * cluster_centers[2]) > threshold
+        cond01 = th.sum(cluster_centers[0] * cluster_centers[1]) > threshold
+        cond02 = th.sum(cluster_centers[0] * cluster_centers[2]) > threshold
+        cond12 = th.sum(cluster_centers[1] * cluster_centers[2]) > threshold
         if cond01 or cond02 or cond12:
             if cond01 and ~cond02 and ~cond12:
                 new_c = (cluster_centers[0]+cluster_centers[1]) / 2.0
-                cluster_centers = torch.stack([new_c, cluster_centers[2]], dim=0)
+                cluster_centers = th.stack([new_c, cluster_centers[2]], dim=0)
             elif cond02 and ~cond01 and ~cond12:
                 new_c = (cluster_centers[0]+cluster_centers[2]) / 2.0
-                cluster_centers = torch.stack([new_c, cluster_centers[1]], dim=0)
+                cluster_centers = th.stack([new_c, cluster_centers[1]], dim=0)
             elif cond12 and ~cond02 and ~cond01:
                 new_c = (cluster_centers[1]+cluster_centers[2]) / 2.0
-                cluster_centers = torch.stack([new_c, cluster_centers[0]], dim=0)
+                cluster_centers = th.stack([new_c, cluster_centers[0]], dim=0)
             else:
-                cluster_centers = torch.sum(cluster_centers, dim=0).view(1, 3) / 3.0
+                cluster_centers = th.sum(cluster_centers, dim=0).view(1, 3) / 3.0
 
         segMasks = []
         for cId in range(cluster_centers.size(0)):
             center = cluster_centers[cId].view(1, 3, 1, 1)
-            seg = torch.sum(normal * center.to(normal.device), dim=1, keepdim=True) > threshold
+            seg = th.sum(normal * center.to(normal.device), dim=1, keepdim=True) > threshold
             planeMask = seg * mask
             planeSegMasks = findConnectedMask(planeMask)
             segMasks += planeSegMasks
@@ -246,22 +242,23 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
 
     def mask2bound(mask):
         H, W = mask.squeeze().shape
-        x_inds = torch.nonzero(torch.any(mask.squeeze(), axis=0)) # HxW -> W -> #nonzero
+        x_inds = th.nonzero(th.any(mask.squeeze(), axis=0)) # HxW -> W -> #nonzero
         x_min = ( (x_inds[0] + 0.5) / W - 0.5) * 2.0 # --> [-1, 1]
         x_max = ( (x_inds[-1] + 0.5) / W - 0.5) * 2.0
-        y_inds = torch.nonzero(torch.any(mask.squeeze(), axis=1)) # HxW -> H -> #nonzero
+        y_inds = th.nonzero(th.any(mask.squeeze(), axis=1)) # HxW -> H -> #nonzero
         y_min = ( (y_inds[0] + 0.5) / H - 0.5) * 2.0
         y_max = ( (y_inds[-1] + 0.5) / H - 0.5) * 2.0
         x_c, y_c = (x_min + x_max) / 2.0, (y_min + y_max) / 2.0
         x_l, y_l = (x_max - x_min), (y_max - y_min)
-        return torch.tensor([x_c, y_c]), torch.tensor([x_l, y_l]) # center, length
+        return th.tensor([x_c, y_c]), th.tensor([x_l, y_l]) # center, length
     
     def toSoftMask(mask): # apply gaussian filter around the mask
         # assume only 1 connected component in mask
         H, W = mask.squeeze().shape
         center, length = mask2bound(mask)
         meshgrids = th.meshgrid(
-            [ ( (th.arange(size, dtype=th.float32) + 0.5) / size - 0.5) * 2.0 for size in [H, W] ]
+            [ ( (th.arange(size, dtype=th.float32) + 0.5) / size - 0.5) * 2.0 for size in [H, W] ], 
+            indexing='ij'
         )
         means = [center[1], center[0] ]
         sigma = [length[1]/2.0, length[0]/2.0 ]
@@ -347,7 +344,6 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 inlierCntList.append(cnt)
                 pixNumList.append(pixNum)
                 pixNumOriList.append(pixNumOri)
-                #print(vId, 'Num of pix:', pixNum, 'inlier:', cnt)
 
             optVal = 0
             for idx, matData in enumerate(matStatList):
@@ -364,25 +360,6 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
             else:
                 print('        Optimal view for material %s not found!' % mat)
         return selectedViewDict
-
-    # def segList2ColorMask(segList):
-    #     def getColorMap(nColor):
-    #         cMap = []
-    #         for c in range(nColor):
-    #             hue = c / nColor * 360.0
-    #             lightness = 0.4 + 0.1 * (c % 3)
-    #             saturation = 0.9
-    #             color_hls = np.array([hue, lightness, saturation])[np.newaxis, np.newaxis, :] * 255.0
-    #             color_rgb = cv2.cvtColor(color_hls.astype(np.uint8), cv2.COLOR_HLS2RGB)
-    #             cMap.append(color_rgb.squeeze())
-    #         return np.stack(cMap, axis=0) # nColor x 3
-
-    #     cMap = th.tensor(getColorMap(len(segList)) ) # nColor x 3
-    #     colorMask = th.zeros_like(segList[0].repeat(1, 3, 1, 1)).byte().view(3, -1)
-    #     for idx, m in enumerate(segList):
-    #         m = m.view(-1) > 0
-    #         colorMask[:, m] = cMap[idx].view(3, 1)
-    #     return colorMask
 
     def transformInp(inp, center1, center2, length1, length2):
         # center1: orCenter; center2: snCenter
@@ -450,21 +427,22 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                     def gaussianMask(mask, mean=0, sig=0.5):
                         # assume only 1 connected component in mask
                         H, W = mask.squeeze().shape
-                        meshgrids = torch.meshgrid(
-                            [ ( (torch.arange(size, dtype=torch.float32) + 0.5) / size - 0.5) * 2.0 for size in [H, W] ]
+                        meshgrids = th.meshgrid(
+                            [ ( (th.arange(size, dtype=th.float32) + 0.5) / size - 0.5) * 2.0 for size in [H, W] ],
+                            indexing='ij'
                         )
                         means = [mean, mean]
                         sigma = [sig, sig]
                         kernel = 1
                         for mean, std, mgrid in zip(means, sigma, meshgrids):
                             kernel *= 1 / (std * math.sqrt(2 * math.pi)) * \
-                                    torch.exp(-((mgrid - mean) / std) ** 2 / 2)
-                        kernel = kernel / torch.sum(kernel) * torch.sum(mask)
+                                    th.exp(-((mgrid - mean) / std) ** 2 / 2)
+                        kernel = kernel / th.sum(kernel) * th.sum(mask)
                         return kernel.view(1, 1, H, W)
                     weightMap = gaussianMask(snInsMask)
                     weightMap = weightMap / weightMap.max()
-                    pixNum = torch.sum(snInsMask.float() * weightMap.to(snInsMask.device))
-                    pixNumOri = torch.sum(snInsMask.float() )
+                    pixNum = th.sum(snInsMask.float() * weightMap.to(snInsMask.device))
+                    pixNumOri = th.sum(snInsMask.float() )
                     #### Apply weight on mask ####
                     invRenderInitStatDict[mat].append( {'vId': camId, 'nPix': th.sum(m).item(), 'albMean': albMean, 'albVar': albVar, 'roughMean': roughMean, 'roughVar': roughVar, 'pixNum': pixNum, 'pixNumOri': pixNumOri } )
         
@@ -494,7 +472,6 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
             orInsList = getOrInsList(mat, insMaskDict)
             # # load scannet instance mask list
             orMatPart = th.from_numpy(matPartMaskDict[mat]).unsqueeze(0).unsqueeze(1)
-            #print(mat, th.sum(orMatPart))
             if cfg.gtMaskDir is None:
                 snIns = getSnInsMap(mat, orMatPart, labelMapDict, semLabel, insLabel)
             else:
@@ -553,7 +530,6 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 maskWarpedOut      = warpedMatPart      * warpedMatPart      + (1-warpedMatPart)      * maskWarpedOut
                 uvOut              = warpedMatPart      * warpedUvMap        + (1-warpedMatPart)      * uvOut
                 warpedOrNormalOut  = warpedMatPart      * warpedOrNormal     + (1-warpedMatPart)      * warpedOrNormalOut
-                # with open(os.path.join(maskSaveDir, '%d_warpInfo.txt' % vId), 'a') as f:
                 with open(cfg.warpInfoByNameId % (mat, vId), 'a') as f:
                     f.write('%f %f %f %f %f %f %f %f \n' % \
                         (center1[0].item(), center1[1].item(), centerOpt[0].item(), centerOpt[1].item(), \
@@ -565,9 +541,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                 npArr = ndimage.binary_erosion( ndimage.binary_erosion( ndimage.binary_erosion( ndimage.binary_dilation( npArr ) ) ) ).astype(int)
                 return th.from_numpy(npArr).unsqueeze(0).unsqueeze(1)
             snMask = postProcess(snMask)
-            #print('\n', mat, len(orInsSelect), len(snInsSelect), len(orInsList), len(snInsList), th.unique(snIns), th.unique(semLabel), th.unique(insLabel), th.sum(snMask), '\n')
             snMaskWeighted = th.sum(snNormal * warpedOrNormalOut, dim=1, keepdim=True) * snMask
-            # print('\n', mat, len(orInsSelect), len(snInsSelect), len(orInsList), len(snInsList), th.sum(snMask), th.sum(snMaskJoint), th.sum(snMaskWeighted), '\n')
             if th.sum(snMaskJoint) < 500:
                 # print('-----> %s Joint Mask with accurate normals is too small, only %d pixels!' % (mat, th.sum(snMask) ) )
                 if th.sum(snMask) > 0:
@@ -579,7 +553,6 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
             # Save Results: 
             mm1 = Image.fromarray((orMatPart.squeeze().numpy() * 255).astype(np.uint8) )
             mm1.save(cfg.maskGeoByNameId % (mat, vId))
-            # print('Part Mask of view %s is saved at %s' % (camIdOpt, osp.join(maskSaveDir, '%s_maskOR.png' % camIdOpt) ) )
             # Matched Results 
             im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(float) * 255.0).astype(np.uint8) )
             im.save(cfg.maskPhotoByNameId % (mat, vId))
@@ -602,16 +575,10 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
             im = im - np.floor(im)
             im = Image.fromarray( (np.concatenate([im, np.ones((im.shape[0], im.shape[1], 1))], axis=2) * 255.0).astype(np.uint8) )
             im.save(cfg.uvUnwarpedVisByNameId % (mat, vId))
-            # Blend
+            # Input
             target_ref = invRenderData['im']
             im = Image.fromarray( (target_ref.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(float) * 255.0).astype(np.uint8) )
             im.save(cfg.photoByNameId % (mat, vId))
-            # target_blend_before = target_ref * orMatPart + 0.3 * target_ref * (~orMatPart)
-            # im = Image.fromarray( (target_blend_before.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            # im.save(os.path.join(outDir, '%d_blendUnwarped.png' % vId))
-            # target_blend_after = target_ref * snMask + 0.3 * target_ref * (1-snMask)
-            # im = Image.fromarray( (target_blend_after.squeeze().permute(1, 2, 0).cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
-            # im.save(os.path.join(outDir, '%d_blendWarped.png' % vId))
 
             # ----> Step 2.5, sn to or: align instance via optimization on iou of mask (and joint normal), also update warped ref
             target_albedo = invRenderData['albedo']
@@ -759,7 +726,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                             mIoUMax = mIoU
                             snMask = snInsMask
 
-                im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(np.float) * 255.0).astype(np.uint8) )
+                im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(float) * 255.0).astype(np.uint8) )
                 im.save(cfg.maskPhotoByNameId % (mat, camId))
 
         saveViewDict(selectedViewNoMaskDictFile, selectedViewNoMaskDict)
@@ -1016,21 +983,19 @@ def updateXMLFromTotal3D(cfg):
 
     def saveCeilingAreaLightMesh(layoutArr, meshSaveDir, lDist=3, lSizeRatio=0.1):
         vArr = layoutArr[0:4, :]
-        verts = torch.from_numpy(vArr).type(torch.FloatTensor) # nVert x 3
-        U, S, V = torch.pca_lowrank(verts, q=None, center=True, niter=2)
+        verts = th.from_numpy(vArr).type(th.FloatTensor) # nVert x 3
+        U, S, V = th.pca_lowrank(verts, q=None, center=True, niter=2)
         axis1, axis2 = V[:,0], V[:,1]
-        axis1 = axis1 / torch.norm(axis1)
-        axis2 = axis2 / torch.norm(axis2)
-        vP1 = torch.sum(verts * axis1.unsqueeze(0), dim=1) # proj to first principal axis
-        length1 = (torch.max(vP1) - torch.min(vP1) ) * 0.9
-        vP2 = torch.sum(verts * axis2.unsqueeze(0), dim=1) # proj to second principal axis
-        length2 = (torch.max(vP2) - torch.min(vP2) ) * 0.9
-        center = (torch.max(verts, dim=0)[0] + torch.min(verts, dim=0)[0] ) / 2.0
-        nLight1 = (length1 + 0.5*lDist) // lDist 
-        # nLight1 = torch.div(length1 + 0.5*lDist, lDist, rounding_mode='floor')
+        axis1 = axis1 / th.norm(axis1)
+        axis2 = axis2 / th.norm(axis2)
+        vP1 = th.sum(verts * axis1.unsqueeze(0), dim=1) # proj to first principal axis
+        length1 = (th.max(vP1) - th.min(vP1) ) * 0.9
+        vP2 = th.sum(verts * axis2.unsqueeze(0), dim=1) # proj to second principal axis
+        length2 = (th.max(vP2) - th.min(vP2) ) * 0.9
+        center = (th.max(verts, dim=0)[0] + th.min(verts, dim=0)[0] ) / 2.0
+        nLight1 = th.div(length1 + 0.5 * lDist, lDist, rounding_mode='floor')
         nLight1 = nLight1 if nLight1 >= 1 else 1
-        nLight2 = (length2 + 0.5*lDist) // lDist
-        # nLight2 = torch.div(length2 + 0.5*lDist, lDist, rounding_mode='floor')
+        nLight2 = th.div(length2 + 0.5 * lDist, lDist, rounding_mode='floor')
         nLight2 = nLight2 if nLight2 >= 1 else 1
         corner = center - 0.5 * length1 * axis1 - 0.5 * length2 * axis2
         step1 = length1 / nLight1
