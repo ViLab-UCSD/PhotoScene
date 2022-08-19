@@ -20,7 +20,7 @@ if [ ! -f third_party/MaskFormer/demo/model_final_0b3cc8.pkl ]; then
         -P third_party/MaskFormer/demo
 fi
 
-# Download inverse rendering net model weight
+# Download inverse rendering net model weight (1.2G)
 if [ ! -f third_party/InverseRenderingOfIndoorScene/models.zip ]; then
     wget http://cseweb.ucsd.edu/~viscomp/projects/CVPR20InverseIndoor/models.zip -P third_party/InverseRenderingOfIndoorScene
     unzip third_party/InverseRenderingOfIndoorScene/models.zip -d third_party/InverseRenderingOfIndoorScene
