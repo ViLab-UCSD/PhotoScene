@@ -1,7 +1,7 @@
 #!/bin/bash
 
 . scripts/photoscene_utils.sh
-yamlFile="${1:-"configs/base.yaml"}"
+yamlFile="${1:-"configs/roots.yaml"}"
 load_base_paths $yamlFile
 
 optix_version="5.1.1"
