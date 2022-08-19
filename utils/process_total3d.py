@@ -22,7 +22,6 @@ if __name__ == '__main__':
                 'person', 'night_stand', 'toilet', 'sink', 'lamp',
                 'bathtub', 'bag', 'otherstructure', 'otherfurniture', 'otherprop']
 
-    # dataPath             = osp.join(total3dInputDir, '%s.pkl' % demoId)
     dataPath = args.input_pkl
     with open(dataPath, 'rb') as f:
         data = pickle.load(f)
@@ -36,26 +35,26 @@ if __name__ == '__main__':
     for idx, cls_id in enumerate(boxes['size_cls']):
         if cls_id != 0:
             bbox = boxes['bdb2D_pos'][idx]
-            det = {"bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])], \
+            det = {"bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])],
                     "class": NYU40CLASSES[cls_id]}
             detection_list.append(det)
-    
+
     # output folder
     outputDir = args.input_pkl.replace('.pkl', '')
     if not os.path.exists(outputDir):
         os.makedirs(outputDir)
-    
+
     # save rgb img
     im = Image.fromarray(rgb_img)
     im.save(os.path.join(outputDir, 'img.jpg'))
-    
+
     # save camera K
     # print(intrinsic_mat)
     with open(os.path.join(outputDir, 'cam_K.txt'), 'w') as f:
-        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[0,0], intrinsic_mat[0,1], intrinsic_mat[0,2]))
-        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[1,0], intrinsic_mat[1,1], intrinsic_mat[1,2]))
-        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[2,0], intrinsic_mat[2,1], intrinsic_mat[2,2]))
-    
+        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[0, 0], intrinsic_mat[0, 1], intrinsic_mat[0, 2]))
+        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[1, 0], intrinsic_mat[1, 1], intrinsic_mat[1, 2]))
+        f.write('%.1f %.1f %.1f\n' % (intrinsic_mat[2, 0], intrinsic_mat[2, 1], intrinsic_mat[2, 2]))
+
     # save detection.json
     # print(detection_list)
     with open(os.path.join(outputDir, 'detections.json'), 'w') as f:

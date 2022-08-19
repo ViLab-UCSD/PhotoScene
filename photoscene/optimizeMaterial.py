@@ -1,19 +1,22 @@
 import os
 import argparse
 import json
-from utils.io import *
-from utils.xml import *
+from utils.io import load_cfg, readGraphDict, readViewDict, loadOptInput
+from utils.xml import getSensorInfoDict
 from utils.rendering_layer import MicrofacetUV
 import time
 import math
 import random
+import torch as th
+import numpy as np
 
-from diffmat import MaterialGraphTranslator as MGT, config_logger
+from diffmat import MaterialGraphTranslator as MGT
 from diffmat.optim import Optimizer
 from diffmat.optim import ParamSampler
 from diffmat.core.io import write_image
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
+
 
 class LossObject(object):
     def __init__(self, renderObj, optObjectiveDict, targetImg, device='cuda'):
@@ -29,18 +32,23 @@ class LossObject(object):
 
     def compute(self, renderImg, output_dict=False):
         self.err_stat = self.renderObj.applyMaskStatLoss(renderImg, self.targetImg)
-        coeff_stat = self.optObjectiveDict['stat'] if 'stat' in self.optObjectiveDict.keys() else th.tensor([0]).to(self.device)
+        coeff_stat = self.optObjectiveDict['stat'] if 'stat' in self.optObjectiveDict.keys() else \
+            th.tensor([0]).to(self.device)
 
         self.err_pix = self.renderObj.applyMaskLoss(renderImg, self.targetImg)
-        coeff_pix = self.optObjectiveDict['pix'] if 'pix' in self.optObjectiveDict.keys() else th.tensor([0]).to(self.device)
+        coeff_pix = self.optObjectiveDict['pix'] if 'pix' in self.optObjectiveDict.keys() else \
+            th.tensor([0]).to(self.device)
 
         self.err_vgg = self.renderObj.applyMaskVggLoss(renderImg, self.targetImg)
-        coeff_vgg = self.optObjectiveDict['vgg'] if 'vgg' in self.optObjectiveDict.keys() else th.tensor([0]).to(self.device)
+        coeff_vgg = self.optObjectiveDict['vgg'] if 'vgg' in self.optObjectiveDict.keys() else \
+            th.tensor([0]).to(self.device)
 
         self.err_style = self.renderObj.applyMaskStyleLoss(renderImg, self.targetImg)
-        coeff_style = self.optObjectiveDict['style'] if 'style' in self.optObjectiveDict.keys() else th.tensor([0]).to(self.device)
+        coeff_style = self.optObjectiveDict['style'] if 'style' in self.optObjectiveDict.keys() else \
+            th.tensor([0]).to(self.device)
 
-        self.err = self.err_stat * coeff_stat + self.err_pix * coeff_pix + self.err_vgg * coeff_vgg + self.err_style * coeff_style
+        self.err = self.err_stat * coeff_stat + self.err_pix * coeff_pix + self.err_vgg * coeff_vgg + \
+            self.err_style * coeff_style
         err_dict = {'stat': self.err_stat, 'pix': self.err_pix, 'vgg': self.err_vgg, 'style': self.err_style}
 
         if output_dict:
@@ -75,7 +83,7 @@ class LossObject(object):
 
 
 class HomogeneousOptimizer(object):
-    def __init__(self, renderObj, optObjectiveDict, targetImg, paramSaveDir, matSaveDir, mode, \
+    def __init__(self, renderObj, optObjectiveDict, targetImg, paramSaveDir, matSaveDir, mode,
                 img_format='png', texRes=16, input_seed=0, device='cuda'):
         self.renderObj          = renderObj
         self.optObjectiveDict   = optObjectiveDict
@@ -92,28 +100,28 @@ class HomogeneousOptimizer(object):
         self.paramOptSavePath   = Path(paramSaveDir) / 'latest.pth'
         self.paramFinalSavePath = Path(paramSaveDir) / Path('%s.pth' % mode)
         self.uvDictSavePath     = Path(paramSaveDir) / 'uvDict.json'
-        self.errorSavePath      = Path(paramSaveDir) / 'error.txt' 
+        self.errorSavePath      = Path(paramSaveDir) / 'error.txt'
         self.matSaveDir         = matSaveDir
 
         self.normal = th.tensor([0.5, 0.5, 1]).to(self.device)
         self.albedo = th.tensor([1.0, 1.0, 1.0]).to(self.device)
-        self.optimizerAlbedo = th.optim.Adam([self.albedo.requires_grad_()], lr=1e-3) 
+        self.optimizerAlbedo = th.optim.Adam([self.albedo.requires_grad_()], lr=1e-3)
         self.rough = th.tensor([0.5]).to(self.device)
         self.optimizerRough  = th.optim.Adam([self.rough.requires_grad_()], lr=5e-3)
         self.input_seed = input_seed
         self.eps = 1e-10
-        self.res = texRes # For output texture map resolution
+        self.res = texRes  # For output texture map resolution
         self.img_format = img_format
 
         self.loss_min = math.inf
         self.param_alb_min = self.albedo
         self.param_rou_min = self.rough
 
-    def _update_param(self, param_dict): 
+    def _update_param(self, param_dict):
         if 'albedo' in param_dict.keys():
             self.albedo = th.tensor(param_dict['albedo']).to(self.device)
             self.optimizerAlbedo = th.optim.Adam([self.albedo.requires_grad_()], lr=1e-3)
-        if 'rough' in param_dict.keys(): 
+        if 'rough' in param_dict.keys():
             self.rough = th.tensor(param_dict['rough']).to(self.device)
             self.optimizerRough  = th.optim.Adam([self.rough.requires_grad_()], lr=5e-3)
 
@@ -148,13 +156,13 @@ class HomogeneousOptimizer(object):
             write_image(img.squeeze(0), (self.matSaveDir / header), self.img_format)
 
     def load_param(self, resumeMode):
-        assert(resumeMode in ['first', 'init', 'latest', 'second'])
+        assert (resumeMode in ['first', 'init', 'latest', 'second'])
         self._load_state(Path(paramSaveDir) / Path('%s.pth' % resumeMode))
 
     def eval_homo(self, output_maps=False, detach=False):
-        
-        map_dict = {'basecolor': self.albedo.unsqueeze(0).unsqueeze(2).unsqueeze(3).repeat(1, 1, self.res, self.res), \
-                    'normal': self.normal.unsqueeze(0).unsqueeze(2).unsqueeze(3).repeat(1, 1, self.res, self.res), \
+
+        map_dict = {'basecolor': self.albedo.unsqueeze(0).unsqueeze(2).unsqueeze(3).repeat(1, 1, self.res, self.res),
+                    'normal': self.normal.unsqueeze(0).unsqueeze(2).unsqueeze(3).repeat(1, 1, self.res, self.res),
                     'roughness': self.rough.repeat(1, 1, self.res, self.res)}
 
         map_dict['basecolor'].clamp_(min=self.eps, max=1)
@@ -167,16 +175,16 @@ class HomogeneousOptimizer(object):
         normal, albedo, rough \
                         = (map_dict['normal'] - 0.5) * 2.0, map_dict['basecolor'] ** 2.2, map_dict['roughness']
 
-        rendered_img = self.renderObj.eval(albedo, normal, rough) # clamp to (eps, 1), ** (1/2.2)
+        rendered_img = self.renderObj.eval(albedo, normal, rough)  # clamp to (eps, 1), ** (1/2.2)
 
         if output_maps:
             return rendered_img, map_dict
         else:
             return rendered_img
-    
+
     def init_param_search(self, sample_num=20, save_params=True):
         print('\nSearching for initial parameters ...')
-        # Look for better start point 
+        # Look for better start point
         bestErr = 10000000000
         for sample_id in range(sample_num):
             albedo = th.rand(3)
@@ -184,23 +192,22 @@ class HomogeneousOptimizer(object):
 
             sample_rendered_img = self.eval_homo()
             err = self.lossObj.compute(sample_rendered_img)
-            
+
             if err < bestErr:
                 is_better = 'better!'
                 bestErr = err.cpu().detach().numpy().item()
                 bestAlbedo = albedo
                 self.loss_min = bestErr
                 self.param_alb_min = bestAlbedo
-                self.lossObj.print(iter_numer=sample_id+1, iter_denom=sample_num, add_text=is_better)
+                self.lossObj.print(iter_numer=sample_id + 1, iter_denom=sample_num, add_text=is_better)
             else:
                 is_better = ''
-            
-        self._update_param({'albedo': bestAlbedo})
+
+        self._update_param({'albedo': bestAlbedo.cpu().detach().numpy()})
         if save_params:
             self._save_state(iter_num=0, save_file=self.paramInitSavePath)
 
-
-    def optimize(self, num_iter=1000, save_itv=100): 
+    def optimize(self, num_iter=1000, save_itv=100):
         print('\nOptimizing for material parameters ...')
         err_list = []
         # log start time
@@ -209,30 +216,30 @@ class HomogeneousOptimizer(object):
         accu_time = 0
         movingAvgPre = 1000000
         # start optimization
-        for i in range(0, num_iter): 
-            iter_start = time.time() 
+        for i in range(0, num_iter):
+            iter_start = time.time()
 
-            self.optimizerAlbedo.zero_grad() 
+            self.optimizerAlbedo.zero_grad()
             self.optimizerRough.zero_grad()
 
             rendered_img = self.eval_homo()
 
             err = self.lossObj.compute(rendered_img)
 
-            # log error 
-            err_list.append(err.cpu().detach().numpy().item()) 
+            # log error
+            err_list.append(err.cpu().detach().numpy().item())
 
             if err < self.loss_min:
                 self.loss_min = err
                 self.param_alb_min = self.albedo
                 self.param_rou_min = self.rough
 
-            # save intermediate result 
-            if (i % save_itv) == 0 and i != 0: 
+            # save intermediate result
+            if (i % save_itv) == 0 and i != 0:
                 movingAvg = accu / save_itv
-                if movingAvg > movingAvgPre or ( (movingAvgPre-movingAvg) < 0.01 * movingAvgPre ):
+                if movingAvg > movingAvgPre or ( (movingAvgPre - movingAvg) < 0.01 * movingAvgPre):
                     print('Early stopping!')
-                    break 
+                    break
                 else:
                     self._save_state(i, self.paramOptSavePath)
 
@@ -244,22 +251,22 @@ class HomogeneousOptimizer(object):
 
                 accu_err_text = 'accu_err: %.06f; ' % movingAvg
                 time_text = 'time: %d ms/iter' % int(time_avg)
-                self.lossObj.print(iter_numer=i, iter_denom=num_iter, add_text=accu_err_text+time_text)
+                self.lossObj.print(iter_numer=i, iter_denom=num_iter, add_text=accu_err_text + time_text)
 
-            err.backward() 
+            err.backward()
             accu += err.cpu().detach().numpy().item()
 
-            self.optimizerAlbedo.step() 
-            self.optimizerRough.step() 
+            self.optimizerAlbedo.step()
+            self.optimizerRough.step()
 
-            iter_end = time.time() 
-            accu_time += (iter_end-iter_start)*1000.0           
-            
+            iter_end = time.time()
+            accu_time += (iter_end - iter_start) * 1000.0
+
         # print time cost for the entire optimization
-        opt_end = time.time() 
-        print('Runtime: %f' % (opt_end - opt_start)) 
+        opt_end = time.time()
+        print('Runtime: %f' % (opt_end - opt_start))
 
-        # save final optimization state 
+        # save final optimization state
         self._save_state(i, self.paramFinalSavePath)
 
         # save optimized material maps
@@ -268,11 +275,11 @@ class HomogeneousOptimizer(object):
         print('Optimized materials are saved at %s\n' % self.matSaveDir)
 
         # save UV optimization results
-        uvValDict = {'scaleU': 1.0, 'scaleV': 1.0, 'rot': 0.0, 'transU': 0.0, 'transV': 0.0 }
+        uvValDict = {'scaleU': 1.0, 'scaleV': 1.0, 'rot': 0.0, 'transU': 0.0, 'transV': 0.0}
         with open(self.uvDictSavePath, 'w') as fp:
             json.dump(uvValDict, fp, indent=4)
 
-        np.savetxt(self.errorSavePath, np.array(err_list), fmt='%f') 
+        np.savetxt(self.errorSavePath, np.array(err_list), fmt='%f')
 
 
 class GraphSampler(ParamSampler):
@@ -284,18 +291,18 @@ class GraphSampler(ParamSampler):
 
             # Get the current parameter setting
             params = graph.get_parameters_as_tensor(**level_kwargs)
-            new_params = self.func(params) # sample new parameters
+            new_params = self.func(params)  # sample new parameters
             graph.set_parameters_from_tensor(new_params, **level_kwargs)
             graph.set_parameters_from_config(param_config)
 
         return new_params
 
+
 class GraphOptimizer(Optimizer):
-    def __init__(self, graph, renderObj, uvConfigDict, optObjectiveDict, targetImg, paramSaveDir, matSaveDir, \
-                        mode, img_format='png', fixUv=False, fixGraph=False, \
-                        useHomoRough=True, input_seed=0):
+    def __init__(self, graph, renderObj, uvConfigDict, optObjectiveDict, targetImg, paramSaveDir, matSaveDir,
+                        mode, img_format='png', fixUv=False, fixGraph=False, useHomoRough=True, input_seed=0):
         super(GraphOptimizer, self).__init__(graph)
-        
+
         self.renderObj          = renderObj
         self.optObjectiveDict   = optObjectiveDict
         self.targetImg          = targetImg
@@ -307,11 +314,11 @@ class GraphOptimizer(Optimizer):
         self.paramFinalSavePath = Path(paramSaveDir) / Path('%s.pth' % mode)
         self.uvDictSavePath     = Path(paramSaveDir) / 'uvDict.json'
         self.albScaleSavePath   = Path(paramSaveDir) / 'albScale.json'
-        self.errorSavePath      = Path(paramSaveDir) / 'error.txt' 
+        self.errorSavePath      = Path(paramSaveDir) / 'error.txt'
         self.matSaveDir         = Path(matSaveDir)
-        
+
         self.albScale = th.tensor([1.0, 1.0, 1.0]).to(self.device)
-        self.optimizerAlbScale = th.optim.Adam([self.albScale.requires_grad_()], lr=1e-3) 
+        self.optimizerAlbScale = th.optim.Adam([self.albScale.requires_grad_()], lr=1e-3)
         self.useHomoRough = useHomoRough
         if useHomoRough:
             self.roughHomo = th.tensor([0.5]).to(self.device)
@@ -321,20 +328,21 @@ class GraphOptimizer(Optimizer):
             self.optimizerRouScale = th.optim.Adam([self.rouScale.requires_grad_()], lr=1e-3)
         self.input_seed = input_seed
         self.eps = 1e-10
-        self.res = 2^self.graph.res
+        self.res = 2 ^ self.graph.res
         self.img_format = img_format
 
         algo_kwargs = {'min': -0.05, 'max': 0.05, 'mu': 0.0, 'sigma': 0.03}
         self.sampler = GraphSampler(self.graph, algo='uniform', algo_kwargs=algo_kwargs, seed=input_seed,
                             device=self.device)
-        
+
         self.fixUv = fixUv
         uvScale = th.tensor([uvConfigDict['uvInitScale'], uvConfigDict['uvInitScale']])
         uvRot = th.tensor([uvConfigDict['uvInitRot']])
         uvTrans = th.tensor([uvConfigDict['uvInitTrans'], uvConfigDict['uvInitTrans']])
         uvScaleLog = th.log(uvScale) / th.log(th.tensor([uvConfigDict['uvScaleBase'], uvConfigDict['uvScaleBase']]))
-        self.uvDict = {'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device), \
-                    'scaleBase': th.tensor([uvConfigDict['uvScaleBase'], uvConfigDict['uvScaleBase']]).to(self.device), 'logscale': uvScaleLog.to(self.device)}
+        self.uvDict = {'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device),
+                    'scaleBase': th.tensor([uvConfigDict['uvScaleBase'], uvConfigDict['uvScaleBase']]).to(self.device),
+                    'logscale': uvScaleLog.to(self.device)}
         self.uvScaleExpMin  = uvConfigDict['uvScaleExpMin']
         self.uvScaleExpMax  = uvConfigDict['uvScaleExpMax']
         self.uvScaleStepNum = uvConfigDict['uvScaleStepNum']
@@ -375,7 +383,7 @@ class GraphOptimizer(Optimizer):
             write_image(img.squeeze(0), (self.matSaveDir / header), self.img_format)
 
     def load_param(self, resumeMode):
-        assert(resumeMode in ['first', 'init', 'latest', 'second'])
+        assert (resumeMode in ['first', 'init', 'latest', 'second'])
         self._load_state(Path(paramSaveDir) / Path('%s.pth' % resumeMode))
 
     def init_param_search(self, sample_num=20, save_params=True):
@@ -394,7 +402,7 @@ class GraphOptimizer(Optimizer):
                 self.param_min = bestParam
                 is_better = 'better!'
 
-                self.lossObj.print(iter_numer=sample_idx+1, iter_denom=sample_num, add_text=is_better)
+                self.lossObj.print(iter_numer=sample_idx + 1, iter_denom=sample_num, add_text=is_better)
 
         self.graph.set_parameters_from_tensor(bestParam, **self.sampler.level_kwargs)
         if save_params:
@@ -427,7 +435,7 @@ class GraphOptimizer(Optimizer):
         normal, albedo, rough \
                         = (map_dict['normal'] - 0.5) * 2.0, map_dict['basecolor'] ** 2.2, map_dict['roughness']
 
-        rendered_img = self.renderObj.eval(albedo, normal, rough, uvDict=self.uvDict) # clamp to (eps, 1), ** (1/2.2)
+        rendered_img = self.renderObj.eval(albedo, normal, rough, uvDict=self.uvDict)  # clamp to (eps, 1), ** (1/2.2)
 
         if output_maps:
             return rendered_img, map_dict
@@ -441,7 +449,7 @@ class GraphOptimizer(Optimizer):
         expMax = self.uvScaleExpMax
         expStep = self.uvScaleStepNum
         transStep = self.uvTransStepNum
-        
+
         bestErr = 100000000000
         uvScaleLogInit  = self.uvDict['logscale']
         uvTransInit     = self.uvDict['trans']
@@ -453,8 +461,9 @@ class GraphOptimizer(Optimizer):
             uvScale = th.pow(uvScaleBase, uvScaleLog)
             uvRot = th.tensor([2 * math.pi / angStep * ang])
             uvTrans = uvTransInit
-            self.uvDict = {'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device), \
-                            'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
+            self.uvDict = {
+                'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device),
+                'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
 
             rendered_img = self.eval_graph(detach=True)
             err = self.lossObj.compute(rendered_img)
@@ -467,14 +476,15 @@ class GraphOptimizer(Optimizer):
                 bestErr = err.cpu().detach().numpy().item()
 
         for scaleIdx in range(expStep):
-            scaleExp = (expMax-expMin) / expStep * scaleIdx + expMin
+            scaleExp = (expMax - expMin) / expStep * scaleIdx + expMin
             iter += 1
             uvScaleLog = th.tensor([scaleExp, scaleExp]).to(self.device)
             uvScale = th.pow(uvScaleBase, uvScaleLog)
             uvRot = uvRotBest
             uvTrans = uvTransBest
-            self.uvDict = {'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device), \
-                            'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
+            self.uvDict = {
+                'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device),
+                'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
 
             rendered_img = self.eval_graph(detach=True)
             err = self.lossObj.compute(rendered_img)
@@ -486,15 +496,16 @@ class GraphOptimizer(Optimizer):
                 uvScaleLogBest = uvScaleLog
                 bestErr = err.cpu().detach().numpy().item()
 
-        for idxX, transX in enumerate(list(np.arange(-0.5, 0.5, 1/transStep))):
-            for idxY, transY in enumerate(list(np.arange(-0.5, 0.5, 1/transStep))):
+        for idxX, transX in enumerate(list(np.arange(-0.5, 0.5, 1 / transStep))):
+            for idxY, transY in enumerate(list(np.arange(-0.5, 0.5, 1 / transStep))):
                 iter += 1
                 uvScaleLog = uvScaleLogBest
                 uvScale = uvScaleBest
                 uvRot = uvRotBest
                 uvTrans = th.tensor([float(transX), float(transY)]).to(self.device)
-                self.uvDict = {'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device), \
-                                'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
+                self.uvDict = {
+                    'scale': uvScale.to(self.device), 'rot': uvRot.to(self.device), 'trans': uvTrans.to(self.device),
+                    'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLog.to(self.device)}
 
                 rendered_img = self.eval_graph(detach=True)
                 err = self.lossObj.compute(rendered_img)
@@ -507,8 +518,10 @@ class GraphOptimizer(Optimizer):
                     bestErr = err.cpu().detach().numpy().item()
 
         # Optimal UV parameters
-        self.uvDict = {'scale': uvScaleBest.to(self.device), 'rot': uvRotBest.to(self.device), 'trans': uvTransBest.to(self.device), \
-                        'scaleBase': uvScaleBase.to(self.device), 'logscale': uvScaleLogBest.to(self.device)}
+        self.uvDict = {
+            'scale': uvScaleBest.to(self.device), 'rot': uvRotBest.to(self.device),
+            'trans': uvTransBest.to(self.device), 'scaleBase': uvScaleBase.to(self.device),
+            'logscale': uvScaleLogBest.to(self.device)}
 
     def optimize(self, num_iter=1000, save_itv=100, search_itv=50):
         print('\nOptimizing for material parameters ...')
@@ -520,8 +533,8 @@ class GraphOptimizer(Optimizer):
         accu_time = 0
         movingAvgPre = 1000000
         # start optimization
-        for i in range(0, num_iter): 
-            iter_start = time.time() 
+        for i in range(0, num_iter):
+            iter_start = time.time()
 
             isSearchUv = False
             i_material = i
@@ -529,7 +542,7 @@ class GraphOptimizer(Optimizer):
                 isSearchUv = True
 
             if not self.fixGraph:
-                self.optimizer.zero_grad() 
+                self.optimizer.zero_grad()
             self.optimizerAlbScale.zero_grad()
             if self.useHomoRough:
                 self.optimizerRough.zero_grad()
@@ -540,19 +553,19 @@ class GraphOptimizer(Optimizer):
 
             err, err_dict = self.lossObj.compute(rendered_img, output_dict=True)
 
-            # log error 
-            err_list.append(err.cpu().detach().numpy().item()) 
+            # log error
+            err_list.append(err.cpu().detach().numpy().item())
 
             if err < self.loss_min:
                 self.loss_min = err
                 self.param_min = self.graph.get_parameters_as_tensor()
 
-            # save intermediate result 
-            if (i % save_itv) == 0 and i != 0: 
+            # save intermediate result
+            if (i % save_itv) == 0 and i != 0:
                 movingAvg = accu / save_itv
-                if movingAvg > movingAvgPre or ( (movingAvgPre-movingAvg) < 0.01 * movingAvgPre ):
+                if movingAvg > movingAvgPre or ( (movingAvgPre - movingAvg) < 0.01 * movingAvgPre):
                     print('Early stopping!')
-                    break 
+                    break
                 else:
                     self._save_state(i, self.paramOptSavePath)
 
@@ -563,21 +576,20 @@ class GraphOptimizer(Optimizer):
                 accu_time = 0
 
                 uv_text = 'scale: %.3f %.3f; rot: %.3f; trans: %.3f %.3f; ' % \
-                    (self.uvDict['scale'][0].item(), self.uvDict['scale'][1].item(), self.uvDict['rot'].item(), \
+                    (self.uvDict['scale'][0].item(), self.uvDict['scale'][1].item(), self.uvDict['rot'].item(),
                     self.uvDict['trans'][0].item(), self.uvDict['trans'][1].item())
 
                 accu_err_text = 'accu: %.06f; ' % movingAvg
                 time_text = 'time: %d ms/iter' % int(time_avg)
-                self.lossObj.print(iter_numer=i, iter_denom=num_iter, add_text=accu_err_text+uv_text+time_text)
-            
+                self.lossObj.print(iter_numer=i, iter_denom=num_iter, add_text=accu_err_text + uv_text + time_text)
 
-            err.backward() 
+            err.backward()
             accu += err.cpu().detach().numpy().item()
 
             if not self.fixGraph:
-                self.optimizer.step() 
+                self.optimizer.step()
             self.optimizerAlbScale.step()
-            
+
             isOptRough = False
             if i_material > 100 or err_dict['stat'].cpu().detach().numpy().item() < 0.01:
                 isOptRough = True
@@ -586,18 +598,18 @@ class GraphOptimizer(Optimizer):
                     self.optimizerRough.step()
                 else:
                     self.optimizerRouScale.step()
-                        
-            iter_end = time.time() 
-            accu_time += (iter_end-iter_start)*1000.0
+
+            iter_end = time.time()
+            accu_time += (iter_end - iter_start) * 1000.0
 
             if isSearchUv:
                 self.searchUVSeq()
 
         # print time cost for the entire optimization
-        opt_end = time.time() 
+        opt_end = time.time()
         print('Runtime: %.1f' % (opt_end - opt_start))
 
-        # save final parameters 
+        # save final parameters
         self._save_state(i, self.paramFinalSavePath)
 
         # save optimized material maps
@@ -607,32 +619,32 @@ class GraphOptimizer(Optimizer):
 
         # save UV optimization results
         uvValDict = {'scaleU': self.uvDict['scale'][0].item(),
-                    'scaleV': self.uvDict['scale'][1].item(), 
-                    'rot': self.uvDict['rot'].item(), 
-                    'transU': self.uvDict['trans'][0].item(), 
-                    'transV': self.uvDict['trans'][1].item() }
+                    'scaleV': self.uvDict['scale'][1].item(),
+                    'rot': self.uvDict['rot'].item(),
+                    'transU': self.uvDict['trans'][0].item(),
+                    'transV': self.uvDict['trans'][1].item()}
         with open(self.uvDictSavePath, 'w') as fp:
             json.dump(uvValDict, fp, indent=4)
 
         # save albedo scale optimization results
-        albScaleDict = {'r': self.albScale[0].item(), 
-                        'g': self.albScale[1].item(), 
+        albScaleDict = {'r': self.albScale[0].item(),
+                        'g': self.albScale[1].item(),
                         'b': self.albScale[2].item()}
         with open(self.albScaleSavePath, 'w') as fp:
             json.dump(albScaleDict, fp, indent=4)
 
-        # save the record of error 
-        np.savetxt(self.errorSavePath, np.array(err_list), fmt='%f') 
+        # save the record of error
+        np.savetxt(self.errorSavePath, np.array(err_list), fmt='%f')
 
 
 if __name__ == '__main__':
-    print('')
+    # print('')
     parser = argparse.ArgumentParser(description='Material Optimization Script for PhotoScene')
     parser.add_argument('--config', required=True)
     parser.add_argument('--mode', required=True, help='first or second round optimization')
     args = parser.parse_args()
 
-    assert(args.mode in ['first', 'second'])
+    assert (args.mode in ['first', 'second'])
 
     cfg = load_cfg(args.config)
     selectedGraphDict = readGraphDict(cfg.selectedGraphFile)
@@ -641,7 +653,7 @@ if __name__ == '__main__':
     for mat, graphName in selectedGraphDict.items():
 
         print('\n---> Material Optimization for part [%s] with graph [%s]' % (mat, graphName))
-        
+
         vId = matViewDict[mat]
         isHdr = False
         inputMode = 'photo' if args.mode == 'first' else 'geo'
@@ -653,35 +665,35 @@ if __name__ == '__main__':
 
         paramSaveDir = Path(cfg.graphParamSaveDirByName % (mat))
         paramSaveDir.mkdir(parents=True, exist_ok=True)
-        
+
         matSaveDir = cfg.matPhotoSceneFinalDirByName if args.mode == 'second' else cfg.matPhotoSceneInitDirByName
         matSaveDir = Path(matSaveDir % mat)
         matSaveDir.mkdir(parents=True, exist_ok=True)
 
         fov = float(getSensorInfoDict(cfg.xmlFile)['fov'])
-        renderObj = MicrofacetUV(2^cfg.matRes, inputData, \
-                                    imHeight=refH, imWidth=refW, fov=fov, useVgg=True, useStyle=True, \
+        renderObj = MicrofacetUV(2 ^ cfg.matRes, inputData,
+                                    imHeight=refH, imWidth=refW, fov=fov, useVgg=True, useStyle=True,
                                     onlyMean=False, isHdr=isHdr, device=cfg.device)
 
         if graphName != 'homogeneous':
-            translator = MGT(os.path.join(cfg.sbsFileDir, '%s.sbs' % graphName), res=cfg.matRes, \
+            translator = MGT(os.path.join(cfg.sbsFileDir, '%s.sbs' % graphName), res=cfg.matRes,
                 toolkit_path=cfg.toolkitRoot)
             graph = translator.translate(external_input_folder=Path(cfg.graphDir) / graphName, device='cuda')
             graph.compile()
-            optimizer = GraphOptimizer(graph, renderObj, cfg.uvConfigDict, cfg.optObjectiveDict, \
-                inputData['im'], paramSaveDir, matSaveDir, args.mode, fixUv=fixUv, \
+            optimizer = GraphOptimizer(graph, renderObj, cfg.uvConfigDict, cfg.optObjectiveDict,
+                inputData['im'], paramSaveDir, matSaveDir, args.mode, fixUv=fixUv,
                 fixGraph=fixGraph, useHomoRough=cfg.useHomoRough, input_seed=cfg.seed)
-            sample_num=20
+            sample_num = 20
         else:
-            optimizer = HomogeneousOptimizer(renderObj, cfg.optObjectiveDict, inputData['im'], paramSaveDir, \
-                matSaveDir, args.mode, texRes=2^cfg.matRes, input_seed=cfg.seed, device='cuda')
-            sample_num=30
+            optimizer = HomogeneousOptimizer(renderObj, cfg.optObjectiveDict, inputData['im'], paramSaveDir,
+                matSaveDir, args.mode, texRes=2 ^ cfg.matRes, input_seed=cfg.seed, device='cuda')
+            sample_num = 30
 
         if resumeMode is None:
-            optimizer.init_param_search(sample_num=sample_num) # search for a better starting point
+            optimizer.init_param_search(sample_num=sample_num)  # search for a better starting point
         else:
             optimizer.load_param(resumeMode)
 
         optimizer.optimize()
-    
-        
+
+    print('\n---> Material Optimization (%s) is done!\n\n' % args.mode)

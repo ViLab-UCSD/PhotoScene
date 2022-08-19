@@ -12,8 +12,8 @@ from PIL import Image
 import math
 from tqdm import tqdm
 
-from utils.io import *
-from utils.xml import *
+from utils.io import load_cfg, loadOptInput
+from utils.xml import getSensorInfoDict
 
 
 def loadBatchMaterialData(graphSampleResultDirList, useHomoRough=False, device='cuda'):
@@ -35,22 +35,22 @@ def loadBatchMaterialData(graphSampleResultDirList, useHomoRough=False, device='
                 roughHomo = th.median(imOri)
                 imOri = roughHomo.repeat(imOri.shape)
             imOriList.append(imOri)
-        matDict[m] = th.cat(imOriList, dim=0) # b x 3 x refH x refW
+        matDict[m] = th.cat(imOriList, dim=0)  # b x 3 x refH x refW
 
     return matDict
 
 
 def computeError(pos_render, neg_optim_render, optObjectiveDict, renderObj):
-    
+
     err_stat = renderObj.applyMaskStatLoss(neg_optim_render, pos_render)
     coeff_stat = optObjectiveDict['stat'] if 'stat' in optObjectiveDict.keys() else th.zeros_like(err_stat)
-    
+
     err_pix = renderObj.applyMaskLoss(neg_optim_render, pos_render)
     coeff_pix = optObjectiveDict['pix'] if 'pix' in optObjectiveDict.keys() else th.zeros_like(err_pix)
-    
+
     err_vgg = renderObj.applyMaskVggLoss(neg_optim_render, pos_render)
     coeff_vgg = optObjectiveDict['vgg'] if 'vgg' in optObjectiveDict.keys() else th.zeros_like(err_vgg)
-    
+
     err = err_stat * coeff_stat + err_pix * coeff_pix + err_vgg * coeff_vgg
     return err, err_stat, err_pix, err_vgg
 
@@ -70,20 +70,20 @@ def adjustColor(source, target, mask):
     target_median = th.ones((1, 3, 1, 1))
     for c in range(3):
         target_median[0, c, 0, 0] = th.median(target_linear[0, c, :, :].view(-1)[mask.view(-1)])
-    return (source_linear / source_median * target_median).clamp(0, 1) ** (1/2.2)
+    return (source_linear / source_median * target_median).clamp(0, 1) ** (1 / 2.2)
     # return (source_linear - source_median + target_median).clamp(0, 1) ** (1/2.2)
 
 
 def toGrayscale(img):
     # N x C x H x W
-    img_linear = th.where(img <= 0.04045, img / 12.92, ( (img + 0.055) / 1.055 ) ** 2.4)
+    img_linear = th.where(img <= 0.04045, img / 12.92, ((img + 0.055) / 1.055) ** 2.4)
     gray_linear = 0.2126 * img_linear[:, 0, :, :] + 0.7152 * img_linear[:, 1, :, :] + 0.0722 * img_linear[:, 2, :, :]
-    gray_srgb = th.where(gray_linear <= 0.0031308, gray_linear * 12.92, gray_linear ** (1/2.4) * 1.055 - 0.055)
+    gray_srgb = th.where(gray_linear <= 0.0031308, gray_linear * 12.92, gray_linear ** (1 / 2.4) * 1.055 - 0.055)
     return gray_srgb.unsqueeze(1).repeat(1, 3, 1, 1)
 
 
 def saveTensorImg(tensor, savePathList):
-    assert(len(savePathList) == tensor.shape[0])
+    assert (len(savePathList) == tensor.shape[0])
     # tensor: N x C x H x W
     for idx, path in enumerate(savePathList):
         if not osp.exists(osp.dirname(path)):
@@ -94,7 +94,7 @@ def saveTensorImg(tensor, savePathList):
 
 
 def main(cfg):
-    
+
     matPartList = []
     vIdList = []
     with open(cfg.selectedViewFile, 'r') as fIn:
@@ -104,14 +104,14 @@ def main(cfg):
             vIdList.append(vId)
 
     if cfg.seed is not None:
-        random.seed(cfg.seed)
+        seed = cfg.seed
     else:
         seed = random.randint(0, 1000)
-        random.seed(seed)
         print('Selected seed is %d!' % seed)
         now = datetime.datetime.now()
         with open(cfg.seedFile, 'a') as f:
             f.write(now.strftime("%Y-%m-%d %H:%M:%S") + ' selectedGraphSeed: %d\n' % seed)
+    random.seed(seed)
 
     if cfg.usekNN:
         graphList = []
@@ -119,19 +119,19 @@ def main(cfg):
             for line in f.readlines():
                 graphList.append(line.strip())
 
-        optObjectiveDict = {'vgg': 1.0} # only need vgg loss to look for similar texture patterns
+        optObjectiveDict = {'vgg': 1.0}  # only need vgg loss to look for similar texture patterns
 
         refH, refW, res = cfg.imgHeight, cfg.imgWidth, 2**cfg.matRes
         if th.cuda.is_available():
             device_full_name = 'cuda'
             device = th.device(device_full_name)
             th.set_default_tensor_type('torch.cuda.FloatTensor')
-            print('Use GPU')
+            # print('Use GPU')
         else:
             device_full_name = 'cpu'
             device = th.device(device_full_name)
             th.set_default_tensor_type('torch.FloatTensor')
-            print('Use CPU')
+            # print('Use CPU')
 
         fov = float(getSensorInfoDict(cfg.xmlFile)['fov'])
         with open(cfg.selectedGraphFile, 'w') as f:
@@ -149,14 +149,13 @@ def main(cfg):
                     inputData = loadOptInput(cfg, matName, vId, refH, refW, mode='photo', device=cfg.device)
 
                     batchSize = cfg.graphSelectBatchSize
-                    renderObj = MicrofacetUV(res, inputData, \
-                                    imHeight=refH, imWidth=refW, fov=fov, \
+                    renderObj = MicrofacetUV(res, inputData, imHeight=refH, imWidth=refW, fov=fov,
                                     useVgg=True, useStyle=False, onlyMean=False, isHdr=False, device=device)
-                    
+
                     pos_render  = inputData['im']
                     if cfg.graphSelectToGray:
                         pos_render  = toGrayscale(pos_render)
-                    
+
                     graphSampleResultDirList = []
                     graphLabelList = []
                     for graphIdx, graph in enumerate(graphList):
@@ -164,19 +163,19 @@ def main(cfg):
                             graphSampleResultDir = os.path.join(cfg.graphSampleDir, graph, str(sampleIdx))
                             graphSampleResultDirList.append(graphSampleResultDir)
                             graphLabelList.append(graphIdx)
-                    
-                    ##### Load Sampled Graph Materials #####
+
+                    # Load Sampled Graph Materials #
                     errList = []
-                    nBatch = math.ceil(len(graphSampleResultDirList) / batchSize) 
+                    nBatch = math.ceil(len(graphSampleResultDirList) / batchSize)
                     for batchIdx in tqdm(range(nBatch)):
-                        start = batchIdx*batchSize
-                        end = min((batchIdx+1)*batchSize, len(graphSampleResultDirList))
+                        start = batchIdx * batchSize
+                        end = min((batchIdx + 1) * batchSize, len(graphSampleResultDirList))
                         resultDirList = graphSampleResultDirList[start:end]
                         mData = loadBatchMaterialData(resultDirList, useHomoRough=cfg.useHomoRough, device=device)
 
                         errAll = []
                         uvScaleBase = 1.5
-                        angBase, angStep = math.pi / 4, cfg.nUvAngStep # 45 deg
+                        angBase, angStep = math.pi / 4, cfg.nUvAngStep  # 45 deg
                         uvScaleLogCandidateList = [0, 2, -2, 4, -4]
                         for uvScaleIdx, uvScaleLogCandidate in enumerate(uvScaleLogCandidateList[:cfg.nUvScaleStep]):
                             uvScaleLogInit = th.tensor([uvScaleLogCandidate, uvScaleLogCandidate])
@@ -185,11 +184,14 @@ def main(cfg):
                                 uvScaleLog = uvScaleLogInit
                                 uvRot = th.tensor([angBase * ang])
                                 uvTrans = uvTransInit
-                                uvDict = {'rot': uvRot, 'trans': uvTrans, 'scaleBase': uvScaleBase, 'logscale': uvScaleLog}
+                                uvDict = {'rot': uvRot, 'trans': uvTrans, 'scaleBase': uvScaleBase,
+                                    'logscale': uvScaleLog}
 
-                                sample_rendered_img = renderObj.eval(mData['basecolor'], mData['normal'], mData['roughness'], \
-                                            uvDict=uvDict, eps=1e-10) # clamp to (eps, 1), ** (1/2.2)
-                                sample_rendered_img = adjustColor(sample_rendered_img, pos_render, inputData['lossWeightMap'])
+                                sample_rendered_img = renderObj.eval(mData['basecolor'], mData['normal'],
+                                    mData['roughness'], uvDict=uvDict, eps=1e-10)  # clamp to (eps, 1), ** (1/2.2)
+                                sample_rendered_img = adjustColor(sample_rendered_img, pos_render,
+                                    inputData['lossWeightMap'])
+
                                 if cfg.graphSelectToGray:
                                     # Convert to grayscale
                                     sample_rendered_img = toGrayscale(sample_rendered_img)
@@ -197,26 +199,31 @@ def main(cfg):
                                 err, err_stat, err_pix, err_vgg = \
                                     computeError(pos_render, sample_rendered_img, optObjectiveDict, renderObj)
                                 errAll.append(err)
-                        errAll = th.min(th.stack(errAll, dim=1), dim=1)[0] # Collect the lowest error!
+                        errAll = th.min(th.stack(errAll, dim=1), dim=1)[0]  # Collect the lowest error!
                         errList.append(err)
                     errFull = th.cat(errList, dim=0)
                     graphLabelTensor = th.LongTensor(graphLabelList)
                     knn = errFull.topk(cfg.kNum, largest=False)
                     votes = graphLabelTensor[knn.indices]
-                    hist = np.histogram(votes.cpu().numpy(), bins=np.arange(len(graphList)+1), weights=1/knn.values.cpu().numpy(), density=True)[0]
+                    hist = np.histogram(
+                        votes.cpu().numpy(), bins=np.arange(len(graphList) + 1), weights=1 / knn.values.cpu().numpy(),
+                        density=True)[0]
+                    # print(hist)
                     selectedGraph = graphList[np.argmax(hist)]
 
                     print('Selected %s graph!' % selectedGraph)
-                    
-                f.write('%s %s\n' % (matName, selectedGraph) )
-    
+
+                f.write('%s %s\n' % (matName, selectedGraph))
+
+        print('\n---> Graph selection is done!\n\n')
+
     else:
         print('Please set usekNN to true to use kNN-based graph selection!')
-        assert(False)
+        assert (False)
 
-        
+
 if __name__ == "__main__":
-    print('\n')
+    print('')
     parser = argparse.ArgumentParser(description='kNN-based Graph Selection for PhotoScene')
     parser.add_argument('--config', required=True)
     args = parser.parse_args()

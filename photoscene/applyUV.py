@@ -1,5 +1,9 @@
 import bpy
 import sys
+import random
+
+
+random.seed(0)
 
 # blender -b -P photoscene/applyUV.py -- inOBJ outOBJ
 
@@ -10,7 +14,7 @@ if bpy.app.background:
     mesh_file_out = args[1]
 else:
     print('Please use -b to use background mode')
-    assert(False)
+    assert (False)
 
 # Delete objects.
 for obj in bpy.context.scene.objects:
