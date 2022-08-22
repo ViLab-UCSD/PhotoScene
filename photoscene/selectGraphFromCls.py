@@ -32,7 +32,7 @@ def loadBatchMaterialData(graphSampleResultDirList, useHomoRough=False, device='
                 imOri = imOri
             imOri = th.from_numpy(imOri).to(device).permute(2, 0, 1).unsqueeze(0)
             if useHomoRough and m == 'roughness':
-                roughHomo = th.median(imOri)
+                roughHomo = th.tensor(0.7)
                 imOri = roughHomo.repeat(imOri.shape)
             imOriList.append(imOri)
         matDict[m] = th.cat(imOriList, dim=0)  # b x 3 x refH x refW
