@@ -193,7 +193,7 @@ def load_cfg(cfg_root):
     # Command prefix
     cfg.total3dPreprocessCmdPre = 'python3 utils/process_total3d.py --input_pkl %s'  # cfg.total3dInputFile
     cfg.total3dRunCmdPre \
-        = 'cd %s;' % cfg.total3dRoot \
+        = 'cd %s; mkdir -p %s; ' % (cfg.total3dRoot, osp.join('external', 'pyTorchChamferDistance', 'build')) \
         + 'python3 main.py configs/total3d.yaml --mode demo --demo_path %s ' \
         + '> %s; ' % osp.join(cfg.logDir, 'total3D.txt') \
         + 'cd %s' % cfg.repoDir  # total 3d dir, data dir, repo
