@@ -4,13 +4,13 @@
 mkdir -p third_party/Total3D/out/pretrained_models
 # Download pretrained model pretrained_model.pth from Total3D (288M)
 if [ ! -f third_party/Total3D/out/pretrained_models/pretrained_model.pth ]; then
-    wget https://livebournemouthac-my.sharepoint.com/:u:/g/personal/ynie_bournemouth_ac_uk/EWuyQXemB25Gq5ssOZfFKyQBA7w2URXR3HLvjJiKkChaiA?download=1 \
+    wget https://tumde-my.sharepoint.com/:u:/g/personal/yinyu_nie_tum_de/EZ0L-aDmX9hMh32-N99zby4Bn4iwI37rsr32VvDt1u1uzg?download=1 \
         -O third_party/Total3D/out/pretrained_models/pretrained_model.pth
 fi
 
 # Download pretrained Mesh Generation Net meshnet_model.pth from Total3D (65M)
 if [ ! -f third_party/Total3D/out/pretrained_models/meshnet_model.pth ]; then
-    wget https://livebournemouthac-my.sharepoint.com/:u:/g/personal/ynie_bournemouth_ac_uk/EcbwpViMFQNCluHzWF8P5-gBFjVWjlqp9v3aK4BE41M3Gw?download=1 \
+    wget https://tumde-my.sharepoint.com/:u:/g/personal/yinyu_nie_tum_de/EW7QpZIGUkxGtUdBwkPi9BQBn1oODQKPb08uuFI1LiSoNw?download=1 \
         -O third_party/Total3D/out/pretrained_models/meshnet_model.pth
 fi
 
