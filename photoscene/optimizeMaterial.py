@@ -328,7 +328,7 @@ class GraphOptimizer(Optimizer):
             self.optimizerRouScale = th.optim.Adam([self.rouScale.requires_grad_()], lr=1e-3)
         self.input_seed = input_seed
         self.eps = 1e-10
-        self.res = 2 ^ self.graph.res
+        self.res = 2 ** self.graph.res
         self.img_format = img_format
 
         algo_kwargs = {'min': -0.05, 'max': 0.05, 'mu': 0.0, 'sigma': 0.03}
@@ -671,7 +671,7 @@ if __name__ == '__main__':
         matSaveDir.mkdir(parents=True, exist_ok=True)
 
         fov = float(getSensorInfoDict(cfg.xmlFile)['fov'])
-        renderObj = MicrofacetUV(2 ^ cfg.matRes, inputData,
+        renderObj = MicrofacetUV(inputData,
                                     imHeight=refH, imWidth=refW, fov=fov, useVgg=True, useStyle=True,
                                     onlyMean=False, isHdr=isHdr, device=cfg.device)
 
@@ -686,7 +686,7 @@ if __name__ == '__main__':
             sample_num = 20
         else:
             optimizer = HomogeneousOptimizer(renderObj, cfg.optObjectiveDict, inputData['im'], paramSaveDir,
-                matSaveDir, args.mode, texRes=2 ^ cfg.matRes, input_seed=cfg.seed, device='cuda')
+                matSaveDir, args.mode, texRes=2 ** cfg.matRes, input_seed=cfg.seed, device='cuda')
             sample_num = 30
 
         if resumeMode is None:

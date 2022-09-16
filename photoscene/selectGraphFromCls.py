@@ -121,7 +121,7 @@ def main(cfg):
 
         optObjectiveDict = {'vgg': 1.0}  # only need vgg loss to look for similar texture patterns
 
-        refH, refW, res = cfg.imgHeight, cfg.imgWidth, 2**cfg.matRes
+        refH, refW = cfg.imgHeight, cfg.imgWidth
         if th.cuda.is_available():
             device_full_name = 'cuda'
             device = th.device(device_full_name)
@@ -149,7 +149,7 @@ def main(cfg):
                     inputData = loadOptInput(cfg, matName, vId, refH, refW, mode='photo', device=cfg.device)
 
                     batchSize = cfg.graphSelectBatchSize
-                    renderObj = MicrofacetUV(res, inputData, imHeight=refH, imWidth=refW, fov=fov,
+                    renderObj = MicrofacetUV(inputData, imHeight=refH, imWidth=refW, fov=fov,
                                     useVgg=True, useStyle=False, onlyMean=False, isHdr=False, device=device)
 
                     pos_render  = inputData['im']

@@ -220,7 +220,7 @@ class StyleLoss(nn.Module):
 
 
 class MicrofacetUV:
-    def __init__(self, res, inputData, imWidth=160, imHeight=120, fov=57, F0=0.05,
+    def __init__(self, inputData, imWidth=160, imHeight=120, fov=57, F0=0.05,
                 cameraPos=[0, 0, 0], envWidth=16, envHeight=8, onlyMean=False,
                 useVgg=False, useStyle=False, isHdr=False, device='cuda'):
         normalInit = inputData['normal']
@@ -240,7 +240,6 @@ class MicrofacetUV:
         self.bbox = [0, 0, 1, 1]
         self.snMask = snMask > 0.9
         self.uvCoord = uvCoord  # 1 x H x W x 2
-        self.res = res  # resolution of texture
         self.eps = 1e-6
 
         self.initGeometry()
