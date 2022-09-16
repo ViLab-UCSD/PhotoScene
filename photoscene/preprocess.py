@@ -57,7 +57,6 @@ def loadSceneRenderData(cfg, vId, refH, refW):
     # load openroom uv coords
     uvPath = cfg.uvPathById % vId
     uvMap = loadBinary(uvPath, channels=2, if_resize=True, imWidth=refW, imHeight=refH)  # 1 x refH x refW x 2
-    uvMap = uvMap - np.floor(uvMap)
     uvMapTensor = th.from_numpy(uvMap)
 
     # load openroom normal
