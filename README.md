@@ -23,7 +23,7 @@ bash scripts/download_model.sh
 ```
 
 4. Set up Substance Designer
-- Install [Substance Designer]((https://www.adobe.com/products/substance3d-designer.html)) with Linux (.rpm) version 2021.1.2
+- Install [Substance Designer](https://www.adobe.com/products/substance3d-designer.html) with Linux (.rpm) version 2021.1.2
 
 Get free license [here](https://store.substance3d.com/students-teachers) if you're a student or teacher. Download Substance Designer version 11.1.2 (437M) (`LICENSES`->`Substance Designer All builds`->`Linux (.rpm) version 2021.1.2`) and run the following to install. The default installation path will be `/opt/Allegorithmic/Substance_Designer`.
 ```
@@ -31,6 +31,7 @@ sudo apt-get update
 sudo apt-get install alien
 sudo alien -i Substance_Designer-11.1.2-4593-linux-x64-standard.rpm
 ```
+- Note: It is a requirement for [DiffMat](https://github.com/mit-gfx/diffmat)
 
 ## Requirement
 1. Install [Docker](https://www.docker.com)
