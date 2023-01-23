@@ -52,7 +52,7 @@ bash scripts/build_renderer.sh
 ## Run PhotoScene
 Now we can run the full PhotoScene framework on a scene specified by `$yamlFile`.
 ```
-bash scripts/run_photoscene.sh $yamlFile
+bash run_photoscene.sh $yamlFile
 ```
 For example, `$yamlFile` is set default as `configs/total3d/Total_246.yaml`.
 Alternatively, you can run each single step sequentially:
