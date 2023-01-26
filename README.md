@@ -44,7 +44,7 @@ bash scripts/run_docker_interactive.sh
 
 2. Build [OptixRenderer](https://github.com/lzqsd/OptixRenderer)
 
-Please make sure OptiX 5.1.1 is installed under `third_party/OptiX` before running the following script.
+Please make sure OptiX 5.1.1 is installed under `third_party/OptiX` before running the following script. Note that from this step all the commands must be run inside the docker environment.
 ```
 bash scripts/build_renderer.sh
 ```
