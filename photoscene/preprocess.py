@@ -780,6 +780,7 @@ def selectViewAndSaveMask(cfg, candidateCamIdList, bsdfIdDict, imWidth, imHeight
                             snMask = snInsMask
 
                 im = Image.fromarray( (snMask.squeeze().cpu().detach().numpy().astype(float) * 255.0).astype(np.uint8))
+                os.makedirs(os.path.dirname(cfg.maskPhotoByNameId % (mat, camId)), exist_ok=True)
                 im.save(cfg.maskPhotoByNameId % (mat, camId))
 
         saveViewDict(selectedViewNoMaskDictFile, selectedViewNoMaskDict)
