@@ -9,6 +9,7 @@ IEEE / CVF Computer Vision and Pattern Recognition Conference  (CVPR), 2022 <br>
 ![](https://github.com/yuyingyeh/yuyingyeh.github.io/blob/master/projects/photoscene/teaser.png)
 
 ## Prerequisite
+0. This repo is tested on RTX2080Ti GPU. There are reports showing that it might not work on newer GPUs.
 1. Clone this repository including submodules
 ```
 git clone --recursive https://github.com/ViLab-UCSD/PhotoScene.git
